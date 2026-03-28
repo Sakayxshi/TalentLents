@@ -12,6 +12,8 @@ export default function UpskillingPage() {
   const { employees, upskillCandidates, addUpskillCandidate, approveUpskill, removeUpskillCandidate, roster, scenarios, selectedScenarioId, setUpskillTrainingPath, markPageComplete } = useStore();
   const { toast } = useToast();
   const [viewMode, setViewMode] = useState<'card' | 'table'>('card');
+  const [generatingPaths, setGeneratingPaths] = useState(false);
+  const [aiTrainingPaths, setAiTrainingPaths] = useState<Record<string, { courses: any[]; totalCost: number; totalWeeks: number }>>({});
 
   const scenario = scenarios.find(s => s.id === selectedScenarioId);
   const roles = scenario?.roles || [];
@@ -27,12 +29,13 @@ export default function UpskillingPage() {
           const missing = getMissingSkills(empSkills, role.requiredSkills);
           const matched = getMatchedSkills(empSkills, role.requiredSkills);
 
-          // Generate training path based on missing skills
-          const path = trainingCourses.filter(course =>
-            course.skills.some(cs => missing.some(ms => ms.toLowerCase().includes(cs) || cs.includes(ms.toLowerCase())))
-          ).slice(0, 4);
-          const totalCost = path.reduce((s, c) => s + c.cost, 0);
-          const totalWeeks = path.reduce((s, c) => s + c.weeks, 0);
+          // Use AI-generated training path if available, otherwise show placeholder
+          const aiPath = aiTrainingPaths[e.employee_id];
+          const trainingPath = aiPath?.courses.map(c => ({
+            course: c.course, duration: c.duration, cost: c.cost, method: c.method, coversSkills: c.coversSkills,
+          })) || [];
+          const totalCost = aiPath?.totalCost || 0;
+          const totalWeeks = aiPath?.totalWeeks || 0;
 
           return {
             ...e,
@@ -40,9 +43,7 @@ export default function UpskillingPage() {
             overlap: Math.round(overlap * 100),
             missingSkills: missing,
             matchedSkills: matched,
-            trainingPath: path.map(p => ({
-              course: p.name, duration: `${p.weeks} weeks`, cost: p.cost, method: p.method, coversSkills: p.skills,
-            })),
+            trainingPath,
             totalCost,
             totalWeeks,
           };
@@ -51,7 +52,36 @@ export default function UpskillingPage() {
         .sort((a, b) => b.overlap - a.overlap)
         .slice(0, 4);
     });
-  }, [employees, roles, roster, upskillCandidates]);
+  }, [employees, roles, roster, upskillCandidates, aiTrainingPaths]);
+
+  const handleGenerateTrainingPaths = async () => {
+    setGeneratingPaths(true);
+    try {
+      const candidatesPayload = uniqueCandidates.slice(0, 10).map(c => ({
+        employeeId: c.employee_id,
+        name: c.name,
+        currentRole: c.role,
+        targetRole: c.targetRole,
+        currentSkills: c.technical_skills,
+        missingSkills: c.missingSkills,
+        overlap: c.overlap,
+      }));
+
+      const result = await invokeAI<GeneratedTrainingPaths>('generate-upskilling', { candidates: candidatesPayload });
+
+      const pathMap: Record<string, { courses: any[]; totalCost: number; totalWeeks: number }> = {};
+      result.trainingPaths.forEach(tp => {
+        pathMap[tp.employeeId] = { courses: tp.courses, totalCost: tp.totalCost, totalWeeks: tp.totalWeeks };
+      });
+      setAiTrainingPaths(pathMap);
+      toast({ title: 'AI Training Paths Generated', description: `${result.trainingPaths.length} personalized paths created` });
+    } catch (err) {
+      console.error('Training path generation failed:', err);
+      toast({ title: 'Generation Failed', description: err instanceof Error ? err.message : 'Please try again', variant: 'destructive' });
+    } finally {
+      setGeneratingPaths(false);
+    }
+  };
 
   // Deduplicate by employee
   const uniqueCandidates = useMemo(() => {
