@@ -208,17 +208,21 @@ export default function UpskillingPage() {
 
                 <div className="border-t border-border pt-3 mb-3">
                   <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Training Path</p>
-                  <div className="space-y-1.5">
-                    {c.trainingPath.map((t, i) => (
-                      <div key={i} className="flex items-center gap-2 text-xs">
-                        <span className="w-4 h-4 rounded-full bg-secondary flex items-center justify-center text-muted-foreground font-medium">{i + 1}</span>
-                        <span className="text-foreground flex-1">{t.course}</span>
-                        <span className="text-muted-foreground">{t.duration}</span>
-                        <span className="text-muted-foreground">€{t.cost.toLocaleString()}</span>
-                        <Badge variant="badge-blue">{t.method}</Badge>
-                      </div>
-                    ))}
-                  </div>
+                  {c.trainingPath.length > 0 ? (
+                    <div className="space-y-1.5">
+                      {c.trainingPath.map((t, i) => (
+                        <div key={i} className="flex items-center gap-2 text-xs">
+                          <span className="w-4 h-4 rounded-full bg-secondary flex items-center justify-center text-muted-foreground font-medium">{i + 1}</span>
+                          <span className="text-foreground flex-1">{t.course}</span>
+                          <span className="text-muted-foreground">{t.duration}</span>
+                          <span className="text-muted-foreground">€{t.cost.toLocaleString()}</span>
+                          <Badge variant="badge-blue">{t.method}</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground italic">Click "Generate AI Training Paths" to create a personalized plan</p>
+                  )}
                 </div>
 
                 <div className="flex gap-2">
