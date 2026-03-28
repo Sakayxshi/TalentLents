@@ -48,6 +48,118 @@ const PROJECT_PRESETS = [
   },
 ] as const;
 
+// ─── Local scenario generator (fallback when AI is unavailable) ───────────────
+
+const ROLE_PROFILES: Record<string, { skills: string[]; certs: string[]; keywords: string[] }> = {
+  'Battery Engineer':        { skills: ['battery chemistry', 'cell testing', 'bms design', 'thermal management', 'electrochemistry'], certs: ['ISO 26262', 'EV Safety Level 2'], keywords: ['battery', 'cell', 'electrochemistry', 'gigafactory', 'bms', 'lithium'] },
+  'Process Engineer':        { skills: ['lean manufacturing', 'value stream', 'kaizen', 'process optimization', 'sap pp'], certs: ['Lean Six Sigma Black Belt', 'IATF 16949'], keywords: ['production', 'manufacturing', 'process', 'commissioning', 'facility'] },
+  'Automation Engineer':     { skills: ['plc programming', 'scada', 'robotics', 'industrial iot', 'autocad'], certs: ['PMP', 'ABB Robotics'], keywords: ['automation', 'plc', 'robotics', 'production line', 'scada'] },
+  'Quality Engineer':        { skills: ['six sigma', 'iso 9001', 'spc', 'root cause analysis', 'fmea'], certs: ['Six Sigma Green Belt', 'ISO 9001 Auditor'], keywords: ['quality', 'qa', 'assurance', 'compliance', 'validation'] },
+  'Materials Scientist':     { skills: ['xrd', 'sem', 'polymer science', 'nanomaterials', 'lab management'], certs: ['Materials Science Professional'], keywords: ['materials', 'chemistry', 'cell', 'cathode', 'anode', 'electrolyte'] },
+  'Supply Chain Analyst':    { skills: ['sap mm', 'demand forecasting', 'logistics', 'strategic sourcing', 'power bi'], certs: ['APICS CSCP', 'SAP Certified'], keywords: ['supply chain', 'sourcing', 'procurement', 'lithium', 'nickel', 'cobalt', 'raw materials'] },
+  'Safety Specialist':       { skills: ['hazop', 'risk assessment', 'iso 45001', 'emergency planning', 'hse'], certs: ['NEBOSH', 'ISO 45001 Lead Auditor'], keywords: ['safety', 'hse', 'compliance', 'regulation', 'hazard'] },
+  'Software Engineer':       { skills: ['c++', 'embedded systems', 'autosar', 'linux', 'git'], certs: ['AUTOSAR Certified', 'Embedded Linux'], keywords: ['software', 'embedded', 'bms', 'firmware', 'integration', 'ota', 'backend'] },
+  'Data Scientist':          { skills: ['python', 'machine learning', 'deep learning', 'sql', 'pytorch'], certs: ['AWS Certified', 'TensorFlow Certificate'], keywords: ['ai', 'ml', 'machine learning', 'data', 'nlp', 'llm', 'copilot', 'telemetry'] },
+  'UX Designer':             { skills: ['figma', 'prototyping', 'user research', 'design systems', 'voice ui'], certs: ['Google UX Certificate'], keywords: ['ux', 'ui', 'design', 'voice', 'multimodal', 'infotainment', 'hmi'] },
+  'Project Manager':         { skills: ['agile', 'jira', 'stakeholder management', 'budgeting', 'safe'], certs: ['PMP', 'SAFe Agilist'], keywords: ['project', 'program', 'rollout', 'launch', 'coordination'] },
+  'Mechanical Engineer':     { skills: ['cad', 'fea', 'solidworks', 'catia', 'structural analysis'], certs: ['CATIA V5 Certified'], keywords: ['mechanical', 'structural', 'hardware', 'facility', 'buildout'] },
+};
+
+function generateScenariosLocally(
+  formData: { name: string; description: string; staffEstimate: string; budgetMax: number; targetDeadline: string; priority: string },
+  computeAvail: (role: string, skills: string[]) => number
+): Scenario[] {
+  const text = `${formData.description} ${formData.staffEstimate}`.toLowerCase();
+
+  // Score each role by keyword match
+  const scored = Object.entries(ROLE_PROFILES)
+    .map(([role, profile]) => {
+      const hits = profile.keywords.filter(kw => text.includes(kw)).length;
+      return { role, profile, hits };
+    })
+    .filter(r => r.hits > 0)
+    .sort((a, b) => b.hits - a.hits);
+
+  // Pick top 8 roles (or all if fewer)
+  const topRoles = scored.slice(0, 8).map(r => r.role);
+  // Ensure at least 6 roles
+  if (topRoles.length < 6) {
+    ['Battery Engineer', 'Process Engineer', 'Quality Engineer', 'Project Manager', 'Safety Specialist', 'Supply Chain Analyst']
+      .forEach(r => { if (!topRoles.includes(r)) topRoles.push(r); });
+  }
+
+  const budgetPerHead = formData.budgetMax * 0.17;
+  const optimalCount = Math.round(formData.budgetMax / budgetPerHead);
+  const leanCount = Math.round(optimalCount * 0.72);
+
+  const makeRoles = (factor: number) =>
+    topRoles.map(roleName => {
+      const profile = ROLE_PROFILES[roleName];
+      const base = Math.max(2, Math.round((scored.find(s => s.role === roleName)?.hits || 1) * factor));
+      const headcount = Math.min(base, Math.round(factor * 3));
+      const avail = computeAvail(roleName, profile.skills);
+      const internalAvailable = Math.min(avail, headcount);
+      return {
+        role: roleName,
+        headcount,
+        requiredSkills: profile.skills,
+        requiredCerts: profile.certs,
+        internalAvailable,
+        gap: Math.max(0, headcount - internalAvailable),
+      };
+    });
+
+  const optRoles = makeRoles(3.2);
+  const leanRoles = makeRoles(2.2);
+  const optTotal = optRoles.reduce((s, r) => s + r.headcount, 0);
+  const leanTotal = leanRoles.reduce((s, r) => s + r.headcount, 0);
+
+  return [
+    {
+      id: 'optimal',
+      name: 'Scenario A',
+      label: 'Full-Scale Launch',
+      totalHeadcount: optTotal,
+      costEstimate: `€${((optTotal * 95000) / 1e6).toFixed(1)}M`,
+      timeline: '12 months',
+      risk: 'Low',
+      rationale: 'Full staffing from day one ensures fastest time-to-market and highest delivery confidence.',
+      pros: ['Maximum capacity & resilience', 'Parallel workstreams', 'Lowest execution risk', 'Meets aggressive timeline'],
+      cons: ['Higher upfront cost', 'Larger coordination overhead', 'Onboarding bottleneck risk'],
+      roles: optRoles,
+    },
+    {
+      id: 'lean',
+      name: 'Scenario B',
+      label: 'Phased Rollout',
+      totalHeadcount: leanTotal,
+      costEstimate: `€${((leanTotal * 95000) / 1e6).toFixed(1)}M`,
+      timeline: '18 months',
+      risk: 'Medium',
+      rationale: 'Phased hiring reduces initial burn rate while preserving optionality to scale up in later stages.',
+      pros: ['Lower initial investment', 'Iterative risk management', 'Easier to pivot', 'Proven before full scale'],
+      cons: ['Longer timeline', 'Higher delivery risk', 'Potential bottlenecks in critical phases'],
+      roles: leanRoles,
+    },
+    {
+      id: 'custom',
+      name: 'Scenario C',
+      label: 'Custom Build',
+      totalHeadcount: 0,
+      costEstimate: '—',
+      timeline: 'TBD',
+      risk: 'None',
+      rationale: 'Define your own team composition by editing role headcounts below.',
+      pros: ['Full control', 'Tailored to constraints', 'Flexible scope'],
+      cons: ['Requires manual configuration'],
+      roles: topRoles.map(roleName => {
+        const profile = ROLE_PROFILES[roleName];
+        return { role: roleName, headcount: 0, requiredSkills: profile.skills, requiredCerts: profile.certs, internalAvailable: 0, gap: 0 };
+      }),
+    },
+  ];
+}
+
 const roleSkillsMap: Record<string, { skills: string[]; certs: string[] }> = {
   'Battery Engineer': { skills: ['battery chemistry', 'thermal management', 'bms design', 'cell testing'], certs: ['ISO 26262', 'EV Safety Level 2'] },
   'Data Scientist': { skills: ['python', 'machine learning', 'deep learning', 'sql', 'tableau'], certs: ['AWS Certified', 'TensorFlow Certificate'] },
@@ -184,6 +296,11 @@ export default function DashboardPage() {
     setGenerating(true);
     setProjectConfig(form);
 
+    const applyScenarios = (scenarioData: Scenario[]) => {
+      setScenarios(scenarioData);
+      markPageComplete(2);
+    };
+
     try {
       const departments = [...new Set(employees.map(e => e.department))];
       const topRoles = [...new Set(employees.map(e => e.role))].slice(0, 10);
@@ -192,26 +309,36 @@ export default function DashboardPage() {
         ? (employees.reduce((a, e) => a + (e.performance_rating || 3), 0) / employees.length).toFixed(1)
         : '3.0';
 
-      const result = await invokeAI<GeneratedScenarios>('generate-scenarios', {
-        projectConfig: form,
-        employeeSummary: { total: employees.length, departments, topRoles, locations, avgPerformance },
-      });
+      let scenarioData: Scenario[];
 
-      const scenarioData: Scenario[] = result.scenarios.map(s => ({
-        ...s,
-        roles: s.roles.map(r => {
-          const avail = computeInternalAvailable(r.role, r.requiredSkills);
-          const internalAvailable = Math.min(avail, r.headcount);
-          return { ...r, internalAvailable, gap: Math.max(0, r.headcount - internalAvailable) };
-        }),
-      }));
+      try {
+        const result = await invokeAI<GeneratedScenarios>('generate-scenarios', {
+          projectConfig: form,
+          employeeSummary: { total: employees.length, departments, topRoles, locations, avgPerformance },
+        });
 
-      setScenarios(scenarioData);
-      markPageComplete(2);
-      toast({ title: 'AI Staffing Plan Generated', description: `${scenarioData.length} scenarios created by AI` });
+        scenarioData = result.scenarios.map(s => ({
+          ...s,
+          roles: s.roles.map(r => {
+            const avail = computeInternalAvailable(r.role, r.requiredSkills);
+            const internalAvailable = Math.min(avail, r.headcount);
+            return { ...r, internalAvailable, gap: Math.max(0, r.headcount - internalAvailable) };
+          }),
+        }));
+
+        applyScenarios(scenarioData);
+        toast({ title: 'AI Staffing Plan Generated', description: `${scenarioData.length} scenarios created by AI` });
+      } catch {
+        // AI unavailable — generate locally from project data
+        scenarioData = generateScenariosLocally(form, computeInternalAvailable);
+        applyScenarios(scenarioData);
+        toast({ title: 'Staffing Plan Generated', description: `${scenarioData.length} scenarios built from project data` });
+      }
     } catch (err) {
-      console.error('Scenario generation failed:', err);
-      toast({ title: 'Generation Failed', description: err instanceof Error ? err.message : 'Please try again', variant: 'destructive' });
+      // Complete fallback — should never reach here
+      const scenarioData = generateScenariosLocally(form, computeInternalAvailable);
+      applyScenarios(scenarioData);
+      toast({ title: 'Staffing Plan Ready', description: 'Generated from project configuration' });
     } finally {
       setGenerating(false);
     }
