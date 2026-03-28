@@ -6,9 +6,10 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts';
-import { Sparkles, AlertTriangle, TrendingUp, Users, CheckCircle2, XCircle, ChevronDown, ChevronUp, Pencil, Brain } from 'lucide-react';
+import { Sparkles, AlertTriangle, TrendingUp, Users, CheckCircle2, XCircle, ChevronDown, ChevronUp, Pencil, Brain, Search, Plus, Minus, UserPlus } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { calculateCompositeScore } from '@/lib/scoring';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 const roleSkillsMap: Record<string, { skills: string[]; certs: string[] }> = {
   'Battery Engineer': { skills: ['battery chemistry', 'thermal management', 'bms design', 'cell testing'], certs: ['ISO 26262', 'EV Safety Level 2'] },
