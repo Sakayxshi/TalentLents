@@ -1,52 +1,77 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useStore, ExternalCandidate } from '@/store/useStore';
 import { PageHeader, MetricCard, Badge } from '@/components/ui/MetricCard';
 import { Button } from '@/components/ui/button';
-import { getScoreColor } from '@/lib/scoring';
+import { getScoreColor, calculateCompositeScore, getSkillOverlap } from '@/lib/scoring';
 import { Star, X, GitCompare } from 'lucide-react';
-
-const mockCandidates: ExternalCandidate[] = Array.from({ length: 35 }, (_, i) => ({
-  id: `ext-${i}`,
-  name: ['Anna Müller','Thomas Weber','Sarah Fischer','Max Schmidt','Elena Braun','Felix Hoffmann','Laura Wagner','Jan Becker','Marie Schulz','David Krüger','Sophie Richter','Paul Neumann','Lea Schwarz','Tim Zimmermann','Klara Wolf','Nico Schäfer','Mia König','Lukas Peters','Hannah Lang','Moritz Frank','Emma Walter','Jonas Baumann','Lena Meier','Ben Huber','Amelie Koch','Philipp Weiß','Charlotte Hartmann','Simon Keller','Julia Lorenz','Niklas Bauer','Clara Berger','Mark Engel','Sophia Horn','Adrian Roth','Lisa Graf'][i],
-  company: ['Siemens','BASF','Continental','Bosch','SAP','Infineon','Daimler','Volkswagen'][i % 8],
-  role: ['Battery Engineer','Data Scientist','Quality Engineer','Automation Engineer','Supply Chain Analyst'][i % 5],
-  targetRole: ['Battery Engineer','Data Scientist','Quality Engineer','Automation Engineer','Supply Chain Analyst'][i % 5],
-  skills: ['Python','MATLAB','Battery Systems','Machine Learning','Six Sigma','AutoCAD','SAP','Tableau'].slice(0, 3 + (i % 4)),
-  certifications: ['PMP','AWS Certified','Six Sigma Green Belt','ISO 9001 Auditor'].slice(0, 1 + (i % 3)),
-  yearsExperience: 3 + (i % 12),
-  salaryExpectation: 65000 + (i % 8) * 5000,
-  noticePeriod: ['1 month','2 months','3 months','Immediate'][i % 4],
-  compositeScore: Math.round(50 + Math.random() * 45),
-  skillMatch: Math.round(55 + Math.random() * 40),
-  education: ['M.Sc. Engineering','B.Sc. Computer Science','Ph.D. Chemistry','M.Sc. Data Science'][i % 4],
-  location: ['Munich','Berlin','Stuttgart','Hamburg'][i % 4],
-}));
-
-const positions = ['Battery Engineer','Data Scientist','Quality Engineer','Automation Engineer','Supply Chain Analyst'];
+import { generateExternalCandidates } from '@/lib/demoData';
+import { useToast } from '@/hooks/use-toast';
 
 type SortMode = 'best' | 'fast' | 'cost' | 'long';
 
 export default function CandidateRankingPage() {
-  const { shortlistedCandidates, shortlistCandidate, unshortlistCandidate } = useStore();
-  const [selectedPosition, setSelectedPosition] = useState(positions[0]);
+  const { shortlistedCandidates, shortlistCandidate, unshortlistCandidate, externalCandidates, setExternalCandidates, scenarios, selectedScenarioId, markPageComplete } = useStore();
+  const { toast } = useToast();
+
+  const scenario = scenarios.find(s => s.id === selectedScenarioId);
+  const positions = useMemo(() => scenario?.roles.filter(r => r.gap > 0).map(r => r.role) || [], [scenario]);
+
+  // Generate candidates if none exist
+  useEffect(() => {
+    if (externalCandidates.length === 0 && positions.length > 0) {
+      const candidates = generateExternalCandidates(positions);
+      // Score each candidate
+      const scored = candidates.map(c => {
+        const role = scenario?.roles.find(r => r.role === c.targetRole);
+        const candidateSkills = (c.technical_skills || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
+        const skillMatch = role ? Math.round(getSkillOverlap(candidateSkills, role.requiredSkills) * 100) : 50;
+        const baseScore = Math.round(
+          skillMatch * 0.3 +
+          Math.min(c.years_experience / 15, 1) * 100 * 0.2 +
+          (c.certifications ? 70 : 30) * 0.15 +
+          (c.education?.includes('M.Sc') || c.education?.includes('Ph.D') ? 80 : 60) * 0.1 +
+          (c.notice_period_weeks <= 4 ? 90 : c.notice_period_weeks <= 8 ? 70 : 50) * 0.1 +
+          60 * 0.15
+        );
+        return { ...c, composite_score: Math.min(100, Math.max(20, baseScore)), skill_match: skillMatch };
+      });
+      setExternalCandidates(scored);
+    }
+  }, [externalCandidates.length, positions, scenario, setExternalCandidates]);
+
+  const [selectedPosition, setSelectedPosition] = useState('');
   const [sortMode, setSortMode] = useState<SortMode>('best');
   const [compareIds, setCompareIds] = useState<string[]>([]);
 
+  // Default to first position
+  useEffect(() => {
+    if (positions.length > 0 && !selectedPosition) setSelectedPosition(positions[0]);
+  }, [positions, selectedPosition]);
+
   const candidates = useMemo(() => {
-    let filtered = mockCandidates.filter(c => c.targetRole === selectedPosition);
+    let filtered = externalCandidates.filter(c => c.targetRole === selectedPosition);
     switch (sortMode) {
-      case 'fast': return filtered.sort((a, b) => a.noticePeriod.localeCompare(b.noticePeriod));
-      case 'cost': return filtered.sort((a, b) => a.salaryExpectation - b.salaryExpectation);
-      case 'long': return filtered.sort((a, b) => b.yearsExperience - a.yearsExperience);
-      default: return filtered.sort((a, b) => b.compositeScore - a.compositeScore);
+      case 'fast': return [...filtered].sort((a, b) => a.notice_period_weeks - b.notice_period_weeks);
+      case 'cost': return [...filtered].sort((a, b) => a.salary_expectation - b.salary_expectation);
+      case 'long': return [...filtered].sort((a, b) => b.years_experience - a.years_experience);
+      default: return [...filtered].sort((a, b) => (b.composite_score || 0) - (a.composite_score || 0));
     }
-  }, [selectedPosition, sortMode]);
+  }, [externalCandidates, selectedPosition, sortMode]);
 
   const toggleCompare = (id: string) => {
     setCompareIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : prev.length < 3 ? [...prev, id] : prev);
   };
 
-  const compareData = mockCandidates.filter(c => compareIds.includes(c.id));
+  const compareData = externalCandidates.filter(c => compareIds.includes(c.id));
+
+  if (!scenario) {
+    return (
+      <div>
+        <PageHeader title="Candidate Ranking" />
+        <div className="card-surface p-12 text-center"><p className="text-muted-foreground">Select a scenario first.</p></div>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -57,9 +82,9 @@ export default function CandidateRankingPage() {
       </PageHeader>
 
       <div className="grid grid-cols-4 gap-4 mb-6">
-        <MetricCard label="Total Candidates" value={mockCandidates.length} />
+        <MetricCard label="Total Candidates" value={externalCandidates.length} />
         <MetricCard label="Shortlisted" value={shortlistedCandidates.length} />
-        <MetricCard label="Avg Score" value={Math.round(mockCandidates.reduce((a, c) => a + c.compositeScore, 0) / mockCandidates.length)} />
+        <MetricCard label="Avg Score" value={externalCandidates.length > 0 ? Math.round(externalCandidates.reduce((a, c) => a + (c.composite_score || 0), 0) / externalCandidates.length) : 0} />
         <MetricCard label="Positions" value={positions.length} />
       </div>
 
@@ -67,14 +92,14 @@ export default function CandidateRankingPage() {
         {/* Left */}
         <div className="w-[35%] shrink-0 space-y-2">
           {positions.map(p => {
-            const count = mockCandidates.filter(c => c.targetRole === p).length;
-            const top = Math.max(...mockCandidates.filter(c => c.targetRole === p).map(c => c.compositeScore));
+            const count = externalCandidates.filter(c => c.targetRole === p).length;
+            const topScore = externalCandidates.filter(c => c.targetRole === p).reduce((max, c) => Math.max(max, c.composite_score || 0), 0);
             return (
               <button key={p} onClick={() => setSelectedPosition(p)} className={`w-full text-left card-surface p-4 transition-all ${selectedPosition === p ? 'ring-2 ring-primary' : ''}`}>
                 <h4 className="font-medium text-foreground text-sm">{p}</h4>
                 <div className="flex justify-between text-xs text-muted-foreground mt-1">
                   <span>{count} applicants</span>
-                  <span>Top: <span className={getScoreColor(top)}>{top}</span></span>
+                  <span>Top: <span className={getScoreColor(topScore)}>{topScore}</span></span>
                 </div>
               </button>
             );
@@ -91,30 +116,44 @@ export default function CandidateRankingPage() {
 
           {candidates.map(c => {
             const isShortlisted = shortlistedCandidates.includes(c.id);
+            const candidateSkills = (c.technical_skills || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
+            const certs = (c.certifications || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
             return (
               <div key={c.id} className="card-surface p-4 animate-fade-in-up">
                 <div className="flex items-start gap-4">
                   <div className="text-center">
-                    <p className={`text-2xl font-bold ${getScoreColor(c.compositeScore)}`}>{c.compositeScore}</p>
+                    <p className={`text-2xl font-bold ${getScoreColor(c.composite_score || 0)}`}>{c.composite_score || 0}</p>
                     <p className="text-[10px] text-muted-foreground">SCORE</p>
                   </div>
                   <div className="flex-1">
                     <div className="flex justify-between">
                       <div>
                         <h4 className="font-semibold text-foreground">{c.name}</h4>
-                        <p className="text-xs text-muted-foreground">{c.company} · {c.role} · {c.yearsExperience} yrs</p>
+                        <p className="text-xs text-muted-foreground">{c.current_company} · {c.current_role} · {c.years_experience} yrs</p>
                       </div>
                       <div className="text-right text-xs text-muted-foreground">
-                        <p>€{c.salaryExpectation.toLocaleString()}</p>
-                        <p>{c.noticePeriod}</p>
+                        <p>€{c.salary_expectation.toLocaleString()}</p>
+                        <p>{c.notice_period_weeks === 0 ? 'Immediate' : `${c.notice_period_weeks}w notice`}</p>
+                      </div>
+                    </div>
+                    {/* Skill match bar */}
+                    <div className="mt-2 mb-1">
+                      <div className="flex justify-between text-[10px] text-muted-foreground">
+                        <span>Skill Match</span><span>{c.skill_match || 0}%</span>
+                      </div>
+                      <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full ${(c.skill_match || 0) >= 70 ? 'bg-success' : 'bg-warning'}`} style={{ width: `${c.skill_match || 0}%` }} />
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-1 mt-2">
-                      {c.skills.map(s => <span key={s} className="px-2 py-0.5 text-xs rounded badge-green">{s}</span>)}
-                      {c.certifications.map(cert => <span key={cert} className="px-2 py-0.5 text-xs rounded badge-blue">{cert}</span>)}
+                      {candidateSkills.slice(0, 5).map(s => <span key={s} className="px-2 py-0.5 text-xs rounded badge-green">{s}</span>)}
+                      {certs.slice(0, 2).map(cert => <span key={cert} className="px-2 py-0.5 text-xs rounded badge-blue">{cert}</span>)}
                     </div>
                     <div className="flex gap-2 mt-3">
-                      <Button size="sm" variant={isShortlisted ? 'outline' : 'default'} onClick={() => isShortlisted ? unshortlistCandidate(c.id) : shortlistCandidate(c.id)}>
+                      <Button size="sm" variant={isShortlisted ? 'outline' : 'default'} onClick={() => {
+                        if (isShortlisted) { unshortlistCandidate(c.id); }
+                        else { shortlistCandidate(c.id); markPageComplete(7); toast({ title: 'Shortlisted', description: c.name }); }
+                      }}>
                         <Star size={13} className={`mr-1 ${isShortlisted ? 'fill-current' : ''}`} />
                         {isShortlisted ? 'Shortlisted' : 'Shortlist'}
                       </Button>
@@ -144,15 +183,34 @@ export default function CandidateRankingPage() {
               </tr>
             </thead>
             <tbody>
-              {(['compositeScore','skillMatch','yearsExperience','salaryExpectation','noticePeriod','education'] as const).map(attr => (
-                <tr key={attr} className="border-b border-border">
-                  <td className="p-2 text-muted-foreground capitalize">{attr.replace(/([A-Z])/g, ' $1')}</td>
-                  {compareData.map(c => {
-                    const val = c[attr];
-                    return <td key={c.id} className="p-2 text-foreground">{typeof val === 'number' ? (attr === 'salaryExpectation' ? `€${val.toLocaleString()}` : val) : val}</td>;
-                  })}
-                </tr>
-              ))}
+              {[
+                { label: 'Score', key: 'composite_score' },
+                { label: 'Skill Match', key: 'skill_match' },
+                { label: 'Experience', key: 'years_experience' },
+                { label: 'Salary', key: 'salary_expectation' },
+                { label: 'Notice', key: 'notice_period_weeks' },
+                { label: 'Education', key: 'education' },
+                { label: 'Location', key: 'location' },
+              ].map(attr => {
+                const values = compareData.map(c => (c as any)[attr.key]);
+                const numValues = values.filter((v): v is number => typeof v === 'number');
+                const best = attr.key === 'salary_expectation' || attr.key === 'notice_period_weeks'
+                  ? Math.min(...numValues) : Math.max(...numValues);
+                return (
+                  <tr key={attr.key} className="border-b border-border">
+                    <td className="p-2 text-muted-foreground">{attr.label}</td>
+                    {compareData.map(c => {
+                      const val = (c as any)[attr.key];
+                      const isBest = typeof val === 'number' && val === best;
+                      return (
+                        <td key={c.id} className={`p-2 ${isBest ? 'text-success font-medium' : 'text-foreground'}`}>
+                          {attr.key === 'salary_expectation' ? `€${val.toLocaleString()}` : attr.key === 'notice_period_weeks' ? (val === 0 ? 'Immediate' : `${val}w`) : typeof val === 'number' ? val : val}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
