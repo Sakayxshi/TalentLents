@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts';
-import { Sparkles, AlertTriangle, TrendingUp, Users, CheckCircle2, XCircle, ChevronDown, ChevronUp, Pencil, Brain, Search, Plus, Minus, UserPlus } from 'lucide-react';
+import { Sparkles, AlertTriangle, TrendingUp, Users, CheckCircle2, XCircle, ChevronDown, ChevronUp, Pencil, Brain, Search, Plus, Minus, UserPlus, Save } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { calculateCompositeScore } from '@/lib/scoring';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -98,19 +98,16 @@ export default function DashboardPage() {
   const [customSearch, setCustomSearch] = useState('');
   const [customRoleFilter, setCustomRoleFilter] = useState('All');
 
-  // Compute estimated auto-assign count per scenario
   const scenarioAssignCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     scenarios.forEach(s => {
       if (s.id === 'custom') { counts[s.id] = 0; return; }
       if (s.id === selectedScenarioId) { counts[s.id] = roster.length; return; }
-      // Estimate by summing min(headcount, internalAvailable) per role
       counts[s.id] = s.roles.reduce((sum, r) => sum + Math.min(r.headcount, r.internalAvailable), 0);
     });
     return counts;
   }, [scenarios, selectedScenarioId, roster]);
 
-  // Compute internal available count for a role by scanning employees
   const computeInternalAvailable = useCallback((role: string, requiredSkills: string[]): number => {
     if (employees.length === 0) return 0;
     return employees.filter(emp => {
@@ -130,10 +127,8 @@ export default function DashboardPage() {
     setProjectConfig(form);
 
     const { optimalLabel, leanLabel } = getProjectBasedNames(form.name);
-
-    // Determine which roles are relevant based on project description
     const allRoles = Object.keys(roleSkillsMap);
-    const selectedRoles = allRoles.slice(0, 8); // Take first 8 roles for scenarios
+    const selectedRoles = allRoles.slice(0, 8);
 
     const computeRoles = (multiplier: number): RoleRequirement[] =>
       selectedRoles.map(roleName => {
@@ -141,12 +136,8 @@ export default function DashboardPage() {
         const hc = Math.max(1, Math.round((5 + Math.random() * 30) * multiplier));
         const avail = computeInternalAvailable(roleName, config.skills);
         return {
-          role: roleName,
-          headcount: hc,
-          internalAvailable: Math.min(avail, hc),
-          gap: Math.max(0, hc - Math.min(avail, hc)),
-          requiredSkills: config.skills,
-          requiredCerts: config.certs,
+          role: roleName, headcount: hc, internalAvailable: Math.min(avail, hc),
+          gap: Math.max(0, hc - Math.min(avail, hc)), requiredSkills: config.skills, requiredCerts: config.certs,
         };
       });
 
@@ -158,26 +149,20 @@ export default function DashboardPage() {
 
       const scenarioData: Scenario[] = [
         {
-          id: 'optimal', name: 'Scenario A', label: optimalLabel,
-          totalHeadcount: optTotal,
-          costEstimate: `€${(optTotal * 0.18).toFixed(1)}M`,
-          timeline: '9 months', risk: 'Low',
-          roles: optRoles,
-          rationale: `Full staffing for maximum velocity on ${form.name}`,
+          id: 'optimal', name: 'Scenario A', label: optimalLabel, totalHeadcount: optTotal,
+          costEstimate: `€${(optTotal * 0.18).toFixed(1)}M`, timeline: '9 months', risk: 'Low',
+          roles: optRoles, rationale: `Full staffing for maximum velocity on ${form.name}`,
           ...getProsCons('optimal', form.name),
         },
         {
-          id: 'lean', name: 'Scenario B', label: leanLabel,
-          totalHeadcount: leanTotal,
-          costEstimate: `€${(leanTotal * 0.15).toFixed(1)}M`,
-          timeline: '14 months', risk: 'Medium',
-          roles: leanRoles,
-          rationale: `Reduced staffing with phased approach for ${form.name}`,
+          id: 'lean', name: 'Scenario B', label: leanLabel, totalHeadcount: leanTotal,
+          costEstimate: `€${(leanTotal * 0.15).toFixed(1)}M`, timeline: '14 months', risk: 'Medium',
+          roles: leanRoles, rationale: `Reduced staffing with phased approach for ${form.name}`,
           ...getProsCons('lean', form.name),
         },
         {
-          id: 'custom', name: 'Scenario C', label: 'Custom',
-          totalHeadcount: 0, costEstimate: '—', timeline: '—', risk: 'None',
+          id: 'custom', name: 'Scenario C', label: 'Custom', totalHeadcount: 0,
+          costEstimate: '—', timeline: '—', risk: 'None',
           roles: selectedRoles.map(roleName => {
             const config = roleSkillsMap[roleName] || { skills: [], certs: [] };
             return { role: roleName, headcount: 0, internalAvailable: 0, gap: 0, requiredSkills: config.skills, requiredCerts: config.certs };
@@ -209,7 +194,6 @@ export default function DashboardPage() {
 
   const selectedScenario = scenarios.find(s => s.id === selectedScenarioId);
 
-  // Compute radar data from actual employees
   const radarData = useMemo(() => {
     if (employees.length === 0 || !selectedScenario) {
       return [
@@ -245,12 +229,10 @@ export default function DashboardPage() {
     ];
   }, [employees, selectedScenario]);
 
-  // Bottom summary cards from real data
   const bottomCards = useMemo(() => {
     if (!selectedScenario) return { criticalGaps: 0, criticalRoles: '', upskillCount: 0, avgSkillMatch: 0, flightRiskCount: 0, flightRiskNames: '' };
     const criticalRoles = selectedScenario.roles.filter(r => r.gap > r.headcount * 0.5);
     const highRisk = employees.filter(e => e.flight_risk?.toLowerCase() === 'high');
-    // Upskill candidates: employees not perfectly matched but with some overlap
     const allReqSkills = selectedScenario.roles.flatMap(r => r.requiredSkills);
     const upskillPool = employees.filter(emp => {
       const empSkills = (emp.technical_skills || '').toLowerCase();
@@ -265,12 +247,9 @@ export default function DashboardPage() {
       : 0;
 
     return {
-      criticalGaps: criticalRoles.length,
-      criticalRoles: criticalRoles.map(r => r.role).join(', '),
-      upskillCount: upskillPool.length,
-      avgSkillMatch: avgMatch,
-      flightRiskCount: highRisk.length,
-      flightRiskNames: highRisk.slice(0, 3).map(e => e.name).join(', '),
+      criticalGaps: criticalRoles.length, criticalRoles: criticalRoles.map(r => r.role).join(', '),
+      upskillCount: upskillPool.length, avgSkillMatch: avgMatch,
+      flightRiskCount: highRisk.length, flightRiskNames: highRisk.slice(0, 3).map(e => e.name).join(', '),
     };
   }, [selectedScenario, employees]);
 
@@ -305,11 +284,21 @@ export default function DashboardPage() {
           </div>
           <div>
             <Label>Budget Min (€)</Label>
-            <Input type="number" value={form.budgetMin} onChange={e => setForm({ ...form, budgetMin: Number(e.target.value) })} className="mt-1.5" />
+            <Input
+              type="text" inputMode="numeric" pattern="[0-9]*"
+              value={form.budgetMin}
+              onChange={e => { const v = parseInt(e.target.value, 10); setForm({ ...form, budgetMin: isNaN(v) ? 0 : v }); }}
+              className="mt-1.5"
+            />
           </div>
           <div>
             <Label>Budget Max (€)</Label>
-            <Input type="number" value={form.budgetMax} onChange={e => setForm({ ...form, budgetMax: Number(e.target.value) })} className="mt-1.5" />
+            <Input
+              type="text" inputMode="numeric" pattern="[0-9]*"
+              value={form.budgetMax}
+              onChange={e => { const v = parseInt(e.target.value, 10); setForm({ ...form, budgetMax: isNaN(v) ? 0 : v }); }}
+              className="mt-1.5"
+            />
           </div>
           <div>
             <Label>Priority Level</Label>
@@ -385,26 +374,17 @@ export default function DashboardPage() {
                     onClick={(e) => {
                       e.stopPropagation();
                       selectScenario(s.id);
-                      // Auto-populate roster for Scenario A/B from employee data
                       if (s.id !== 'custom' && employees.length > 0) {
-                        // Clear existing roster first
                         const currentRoster = useStore.getState().roster;
                         currentRoster.forEach(id => removeFromRoster(id));
-                        // Score & assign top employees per role
                         const assigned = new Set<string>();
                         s.roles.forEach(role => {
                           const scored = employees
                             .filter(emp => !assigned.has(emp.employee_id))
-                            .map(emp => ({
-                              emp,
-                              score: calculateCompositeScore(emp, role.requiredSkills, role.requiredCerts, form.priority)
-                            }))
+                            .map(emp => ({ emp, score: calculateCompositeScore(emp, role.requiredSkills, role.requiredCerts, form.priority) }))
                             .sort((a, b) => b.score.total - a.score.total)
                             .slice(0, Math.min(role.headcount, role.internalAvailable));
-                          scored.forEach(({ emp }) => {
-                            assigned.add(emp.employee_id);
-                            addToRoster(emp.employee_id);
-                          });
+                          scored.forEach(({ emp }) => { assigned.add(emp.employee_id); addToRoster(emp.employee_id); });
                         });
                         toast({ title: 'Scenario Selected', description: `${s.label} — ${assigned.size} employees auto-assigned to roster` });
                       } else {
@@ -449,8 +429,8 @@ export default function DashboardPage() {
             ))}
           </div>
 
-          {/* AI Overview */}
-          {selectedScenarioId && selectedScenario && (
+          {/* AI Overview — only for A/B */}
+          {selectedScenarioId && selectedScenario && selectedScenarioId !== 'custom' && (
             <div className="card-surface p-5 mb-6">
               <div className="flex items-center gap-2 mb-3">
                 <Brain size={18} className="text-primary" />
@@ -471,30 +451,43 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Role Grid — Editable */}
+          {/* Role Breakdown with Save */}
           {selectedScenarioId && selectedScenario && (
             <div className="card-surface p-5 mb-6">
-              <div className="flex items-center gap-2 mb-4">
-                <Pencil size={15} className="text-muted-foreground" />
-                <h3 className="font-semibold text-foreground">Role Breakdown</h3>
-                <span className="text-xs text-muted-foreground ml-1">— edit headcount to model different strategies</span>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Pencil size={15} className="text-muted-foreground" />
+                  <h3 className="font-semibold text-foreground">Role Breakdown</h3>
+                  <span className="text-xs text-muted-foreground ml-1">— edit headcount to model different strategies</span>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    markPageComplete(2);
+                    toast({ title: 'Distribution Saved', description: `${selectedScenario.totalHeadcount} total across ${selectedScenario.roles.length} roles` });
+                  }}
+                >
+                  <Save size={14} className="mr-1.5" />
+                  Save Distribution
+                </Button>
               </div>
               <div className="grid grid-cols-4 gap-3">
                 {selectedScenario.roles.map((r, idx) => (
                   <div key={r.role} className="bg-secondary rounded-lg p-3">
                     <p className="text-sm font-medium text-foreground truncate">{r.role}</p>
-                    <div className="flex justify-between items-center text-xs text-muted-foreground mt-2">
-                      <span className="flex items-center gap-1">
-                        Need:
-                        <input
-                          type="number"
-                          min={0}
-                          value={r.headcount}
-                          onChange={e => handleRoleHeadcountChange(selectedScenarioId, idx, Number(e.target.value))}
-                          className="w-12 bg-background border border-border rounded px-1.5 py-0.5 text-xs text-foreground text-center focus:outline-none focus:ring-1 focus:ring-primary"
-                        />
-                      </span>
-                      <span className="text-success">Have: {r.internalAvailable}</span>
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-2">
+                      <span>Need:</span>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        value={r.headcount}
+                        onChange={e => {
+                          const val = parseInt(e.target.value, 10);
+                          handleRoleHeadcountChange(selectedScenarioId, idx, isNaN(val) ? 0 : val);
+                        }}
+                        className="w-12 bg-background border border-border rounded px-1.5 py-0.5 text-xs text-foreground text-center focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
                     </div>
                     {r.gap > 0 && <p className="text-xs text-destructive mt-1">Gap: {r.gap}</p>}
                     {r.requiredSkills.length > 0 && (
@@ -525,41 +518,24 @@ export default function DashboardPage() {
                   </span>
                 )}
               </div>
-
-              {/* Search & filter bar */}
               <div className="flex gap-3 mb-4">
                 <div className="relative flex-1">
                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    placeholder="Search by name, skills, or department..."
-                    value={customSearch}
-                    onChange={e => setCustomSearch(e.target.value)}
-                    className="pl-9 h-9 text-sm"
-                  />
+                  <Input placeholder="Search by name, skills, or department..." value={customSearch} onChange={e => setCustomSearch(e.target.value)} className="pl-9 h-9 text-sm" />
                 </div>
-                <select
-                  value={customRoleFilter}
-                  onChange={e => setCustomRoleFilter(e.target.value)}
-                  className="h-9 rounded-lg bg-secondary border border-border px-3 text-xs text-foreground"
-                >
+                <select value={customRoleFilter} onChange={e => setCustomRoleFilter(e.target.value)} className="h-9 rounded-lg bg-secondary border border-border px-3 text-xs text-foreground">
                   <option value="All">All Roles</option>
                   {[...new Set(employees.map(e => e.role))].sort().map(r => (
                     <option key={r} value={r}>{r}</option>
                   ))}
                 </select>
               </div>
-
-              {/* Employee list */}
               <ScrollArea className="h-[320px]">
                 <div className="space-y-1.5 pr-3">
                   {employees
                     .filter(emp => {
                       const search = customSearch.toLowerCase();
-                      const matchesSearch = !search ||
-                        emp.name.toLowerCase().includes(search) ||
-                        (emp.technical_skills || '').toLowerCase().includes(search) ||
-                        emp.department.toLowerCase().includes(search) ||
-                        emp.role.toLowerCase().includes(search);
+                      const matchesSearch = !search || emp.name.toLowerCase().includes(search) || (emp.technical_skills || '').toLowerCase().includes(search) || emp.department.toLowerCase().includes(search) || emp.role.toLowerCase().includes(search);
                       const matchesRole = customRoleFilter === 'All' || emp.role === customRoleFilter;
                       return matchesSearch && matchesRole;
                     })
@@ -569,20 +545,11 @@ export default function DashboardPage() {
                       const allSkills = selectedScenario?.roles.flatMap(r => r.requiredSkills) || [];
                       const score = calculateCompositeScore(emp, allSkills, [], form.priority);
                       return (
-                        <div
-                          key={emp.employee_id}
-                          className={`flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors ${
-                            isOnRoster ? 'bg-primary/8 border border-primary/15' : 'bg-secondary/50 border border-transparent hover:bg-secondary'
-                          }`}
-                        >
+                        <div key={emp.employee_id} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors ${isOnRoster ? 'bg-primary/8 border border-primary/15' : 'bg-secondary/50 border border-transparent hover:bg-secondary'}`}>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-medium text-foreground truncate">{emp.name}</span>
-                              {isOnRoster && (
-                                <span className="text-[10px] font-medium uppercase tracking-wider text-primary bg-primary/10 px-1.5 py-0.5 rounded">
-                                  Rostered
-                                </span>
-                              )}
+                              {isOnRoster && <span className="text-[10px] font-medium uppercase tracking-wider text-primary bg-primary/10 px-1.5 py-0.5 rounded">Rostered</span>}
                             </div>
                             <div className="flex items-center gap-2 mt-0.5">
                               <span className="text-xs text-muted-foreground">{emp.role}</span>
@@ -591,27 +558,13 @@ export default function DashboardPage() {
                             </div>
                           </div>
                           <div className="text-right shrink-0 mr-2">
-                            <span className={`text-sm font-bold ${
-                              score.total >= 80 ? 'text-success' : score.total >= 60 ? 'text-warning' : 'text-destructive'
-                            }`}>
-                              {score.total}
-                            </span>
+                            <span className={`text-sm font-bold ${score.total >= 80 ? 'text-success' : score.total >= 60 ? 'text-warning' : 'text-destructive'}`}>{score.total}</span>
                             <p className="text-[10px] text-muted-foreground">score</p>
                           </div>
-                          <Button
-                            variant={isOnRoster ? 'outline' : 'default'}
-                            size="sm"
-                            className="h-7 w-7 p-0 shrink-0"
-                            onClick={() => {
-                              if (isOnRoster) {
-                                removeFromRoster(emp.employee_id);
-                                toast({ title: 'Removed', description: `${emp.name} removed from roster` });
-                              } else {
-                                addToRoster(emp.employee_id);
-                                toast({ title: 'Added', description: `${emp.name} added to roster` });
-                              }
-                            }}
-                          >
+                          <Button variant={isOnRoster ? 'outline' : 'default'} size="sm" className="h-7 w-7 p-0 shrink-0" onClick={() => {
+                            if (isOnRoster) { removeFromRoster(emp.employee_id); toast({ title: 'Removed', description: `${emp.name} removed from roster` }); }
+                            else { addToRoster(emp.employee_id); toast({ title: 'Added', description: `${emp.name} added to roster` }); }
+                          }}>
                             {isOnRoster ? <Minus size={14} /> : <Plus size={14} />}
                           </Button>
                         </div>
@@ -622,6 +575,7 @@ export default function DashboardPage() {
             </div>
           )}
 
+          {/* Team Competency + Gap Analysis — after Role Breakdown */}
           <div className="grid grid-cols-2 gap-4 mb-6">
             <div className="card-surface p-5">
               <h3 className="font-semibold text-foreground mb-4">Team Competency Estimate</h3>
@@ -653,7 +607,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Bottom cards */}
+          {/* Bottom summary cards */}
           <div className="grid grid-cols-3 gap-4">
             <div className="card-surface p-5">
               <div className="flex items-center gap-2 mb-3">
