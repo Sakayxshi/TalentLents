@@ -27,60 +27,8 @@ const roleSkillsMap: Record<string, { skills: string[]; certs: string[] }> = {
   'Materials Scientist': { skills: ['xrd', 'sem', 'polymer science', 'nanomaterials'], certs: ['Materials Science Professional'] },
 };
 
-function getProjectBasedNames(projectName: string): { optimalLabel: string; leanLabel: string } {
-  const lower = projectName.toLowerCase();
-  if (lower.includes('battery') || lower.includes('gigafactory') || lower.includes('ev')) {
-    return { optimalLabel: 'Full-Scale Launch', leanLabel: 'Phased Rollout' };
-  }
-  if (lower.includes('software') || lower.includes('digital') || lower.includes('platform')) {
-    return { optimalLabel: 'Rapid Delivery', leanLabel: 'Agile MVP' };
-  }
-  if (lower.includes('autonomous') || lower.includes('self-driving') || lower.includes('adas')) {
-    return { optimalLabel: 'Accelerated Program', leanLabel: 'Core-First Approach' };
-  }
-  if (lower.includes('manufacturing') || lower.includes('production') || lower.includes('factory')) {
-    return { optimalLabel: 'Full Production', leanLabel: 'Pilot Line' };
-  }
-  return { optimalLabel: 'Optimal Deployment', leanLabel: 'Lean Execution' };
-}
 
-function getProsCons(id: string, projectName: string): { pros: string[]; cons: string[] } {
-  const lower = projectName.toLowerCase();
-  const domain = lower.includes('battery') || lower.includes('ev') ? 'production' : 'delivery';
-  if (id === 'optimal') {
-    return {
-      pros: [
-        `Full team capacity ensures on-time ${domain}`,
-        'Redundancy across critical roles reduces single-point-of-failure risk',
-        'Enables parallel workstreams and faster iteration cycles',
-        'Strong competitive positioning with fully-staffed teams',
-      ],
-      cons: [
-        'Highest cost scenario — significant upfront investment required',
-        'Larger team requires more coordination overhead',
-        'Recruiting at scale may extend initial ramp-up period',
-        'Higher burn rate if project scope changes',
-      ],
-    };
-  }
-  if (id === 'lean') {
-    return {
-      pros: [
-        'Lower cost with focused resource allocation',
-        'Smaller team is easier to coordinate and align',
-        'Reduced financial risk if project pivots',
-        'Forces prioritization of highest-impact activities',
-      ],
-      cons: [
-        `Extended timeline may delay ${domain} milestones`,
-        'Limited redundancy — key person dependencies increase risk',
-        'May require phased feature delivery or scope reduction',
-        'Team may face burnout from higher individual workloads',
-      ],
-    };
-  }
-  return { pros: [], cons: [] };
-}
+
 
 export default function DashboardPage() {
   const { projectConfig, setProjectConfig, scenarios, setScenarios, selectScenario, selectedScenarioId, markPageComplete, employees, addToRoster, removeFromRoster, roster } = useStore();
