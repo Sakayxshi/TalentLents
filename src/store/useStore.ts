@@ -41,8 +41,10 @@ export interface Scenario {
   totalHeadcount: number;
   costEstimate: string;
   timeline: string;
-  risk: 'Low' | 'Medium' | 'High';
+  risk: 'Low' | 'Medium' | 'High' | 'None';
   roles: RoleRequirement[];
+  pros: string[];
+  cons: string[];
 }
 
 export interface ProjectConfig {
