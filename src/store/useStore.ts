@@ -29,6 +29,23 @@ export interface Employee {
   skill_match_pct?: number;
 }
 
+export interface ProjectRecord {
+  employee_id: string;
+  employee_name: string;
+  department: string;
+  role: string;
+  project_name: string;
+  project_position: string;
+  project_status: string;
+  start_date: string;
+  end_date: string;
+  skills_applied: string;
+  certifications_applied: string;
+  contribution_summary: string;
+  performance_in_project: number;
+  key_deliverable: string;
+}
+
 export interface RoleRequirement {
   role: string;
   headcount: number;
@@ -126,6 +143,9 @@ interface AppState {
   uploadStats: { total: number; departments: number; locations: number; skipped: number } | null;
   setEmployees: (employees: Employee[], stats: { total: number; departments: number; locations: number; skipped: number }) => void;
 
+  projectHistory: ProjectRecord[];
+  setProjectHistory: (records: ProjectRecord[]) => void;
+
   projectConfig: ProjectConfig | null;
   setProjectConfig: (config: ProjectConfig) => void;
 
@@ -170,6 +190,9 @@ export const useStore = create<AppState>((set) => ({
   employees: [],
   uploadStats: null,
   setEmployees: (employees, stats) => set({ employees, uploadStats: stats }),
+
+  projectHistory: [],
+  setProjectHistory: (records) => set({ projectHistory: records }),
 
   projectConfig: null,
   setProjectConfig: (config) => set({ projectConfig: config }),

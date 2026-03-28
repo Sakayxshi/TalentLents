@@ -1,5 +1,5 @@
 import Papa from 'papaparse';
-import { Employee, ExternalCandidate } from '@/store/useStore';
+import { Employee, ExternalCandidate, ProjectRecord } from '@/store/useStore';
 
 const departments = ['Engineering', 'Data & Analytics', 'Quality', 'Operations', 'Supply Chain', 'R&D', 'Manufacturing', 'IT'];
 const roles = ['Battery Engineer', 'Data Scientist', 'Quality Engineer', 'Automation Engineer', 'Supply Chain Analyst', 'Safety Specialist', 'Project Manager', 'UX Designer', 'Mechanical Engineer', 'Software Engineer', 'Process Engineer', 'Materials Scientist'];
@@ -147,6 +147,42 @@ export async function loadBmwDatabase(): Promise<{
         const locations = new Set(employees.map(e => e.location)).size;
 
         resolve({ employees, stats: { total: employees.length, departments, locations, skipped } });
+      },
+      error: (err) => reject(new Error(err.message)),
+    });
+  });
+}
+
+export async function loadProjectHistory(): Promise<ProjectRecord[]> {
+  const response = await fetch('/bmw_employee_projects.csv');
+  if (!response.ok) throw new Error('Failed to fetch project history');
+  const csvText = await response.text();
+
+  return new Promise((resolve, reject) => {
+    Papa.parse(csvText, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        const data = results.data as Record<string, string>[];
+        const records: ProjectRecord[] = data
+          .filter(r => r.employee_id && r.project_name)
+          .map(row => ({
+            employee_id: row.employee_id,
+            employee_name: row.employee_name || '',
+            department: row.department || '',
+            role: row.role || '',
+            project_name: row.project_name || '',
+            project_position: row.project_position || '',
+            project_status: row.project_status || '',
+            start_date: row.start_date || '',
+            end_date: row.end_date || '',
+            skills_applied: row.skills_applied || '',
+            certifications_applied: row.certifications_applied || '',
+            contribution_summary: row.contribution_summary || '',
+            performance_in_project: Number(row.performance_in_project) || 0,
+            key_deliverable: row.key_deliverable || '',
+          }));
+        resolve(records);
       },
       error: (err) => reject(new Error(err.message)),
     });

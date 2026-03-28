@@ -11,7 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { calculateCompositeScore } from '@/lib/scoring';
 import { invokeAI, GeneratedScenarios } from '@/lib/aiService';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { loadBmwDatabase, generateDemoEmployees } from '@/lib/demoData';
+import { loadBmwDatabase, generateDemoEmployees, loadProjectHistory } from '@/lib/demoData';
 import Papa from 'papaparse';
 import { Employee } from '@/store/useStore';
 
@@ -198,7 +198,7 @@ const roleSkillsMap: Record<string, { skills: string[]; certs: string[] }> = {
 };
 
 export default function DashboardPage() {
-  const { projectConfig, setProjectConfig, scenarios, setScenarios, selectScenario, selectedScenarioId, markPageComplete, employees, setEmployees, addToRoster, removeFromRoster, roster } = useStore();
+  const { projectConfig, setProjectConfig, scenarios, setScenarios, selectScenario, selectedScenarioId, markPageComplete, employees, setEmployees, setProjectHistory, addToRoster, removeFromRoster, roster } = useStore();
   const { toast } = useToast();
   const defaultPreset = PROJECT_PRESETS[0].form;
   const [form, setForm] = useState({
@@ -217,10 +217,14 @@ export default function DashboardPage() {
   const handleLoadBmw = async () => {
     setLoadingBmw(true);
     try {
-      const { employees: emps, stats } = await loadBmwDatabase();
+      const [{ employees: emps, stats }, history] = await Promise.all([
+        loadBmwDatabase(),
+        loadProjectHistory().catch(() => []),
+      ]);
       setEmployees(emps, stats);
+      if (history.length > 0) setProjectHistory(history);
       markPageComplete(1);
-      toast({ title: 'BMW Database Loaded', description: `${stats.total} employees ready` });
+      toast({ title: 'BMW Database Loaded', description: `${stats.total} employees · ${history.length} project records` });
     } catch {
       toast({ title: 'Failed to load database', variant: 'destructive' });
     } finally {

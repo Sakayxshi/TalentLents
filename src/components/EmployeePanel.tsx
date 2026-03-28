@@ -1,8 +1,10 @@
-import { Employee } from '@/store/useStore';
+import { useMemo } from 'react';
+import { Employee, useStore } from '@/store/useStore';
 import { ScoreBreakdown, getScoreColor, getAppraisalVariant, getRiskVariant, getMatchedSkills, getMissingSkills } from '@/lib/scoring';
 import { Badge } from '@/components/ui/MetricCard';
 import { Button } from '@/components/ui/button';
-import { X } from 'lucide-react';
+import { X, Sparkles, Star, Users2, Lightbulb, TrendingUp, Eye } from 'lucide-react';
+import { analyzeEmployeeTalents } from '@/lib/hidden-talent';
 
 interface EmployeePanelProps {
   employee: Employee;
@@ -17,10 +19,25 @@ interface EmployeePanelProps {
 export function EmployeePanel({
   employee, scoreData, requiredSkills = [], isRostered, onAddToRoster, onRemoveFromRoster, onClose
 }: EmployeePanelProps) {
+  const { projectHistory } = useStore();
   const empSkills = (employee.technical_skills || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
   const matched = getMatchedSkills(empSkills, requiredSkills);
   const missing = getMissingSkills(empSkills, requiredSkills);
   const matchedLower = matched.map(s => s.toLowerCase());
+
+  const talentProfile = useMemo(() => {
+    if (projectHistory.length === 0) return null;
+    return analyzeEmployeeTalents(employee.employee_id, projectHistory, employee.technical_skills);
+  }, [employee.employee_id, employee.technical_skills, projectHistory]);
+
+  const TALENT_ICONS: Record<string, typeof Sparkles> = {
+    'Leadership Potential': Star,
+    'Mentor / Knowledge Sharer': Users2,
+    'Builder / Innovator': Lightbulb,
+    'Star Performer': TrendingUp,
+    'Consistent High Performer': TrendingUp,
+    'Cross-Functional': Eye,
+  };
 
   return (
     <div className="w-[400px] shrink-0 card-surface p-5 overflow-y-auto max-h-[calc(100vh-140px)] animate-fade-in-up">
@@ -81,6 +98,52 @@ export function EmployeePanel({
               <div className="flex flex-wrap gap-1">
                 {missing.map(s => <span key={s} className="px-2 py-0.5 text-xs rounded-md badge-red">{s}</span>)}
               </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Hidden Talents */}
+      {talentProfile && talentProfile.talents.length > 0 && (
+        <div className="mb-4 p-3 rounded-lg bg-primary/5 border border-primary/15">
+          <div className="flex items-center gap-2 mb-2">
+            <Sparkles size={14} className="text-primary" />
+            <p className="text-xs font-semibold text-primary uppercase tracking-wider">Hidden Talents</p>
+          </div>
+          <div className="space-y-2">
+            {talentProfile.talents.slice(0, 5).map((talent, i) => {
+              const Icon = TALENT_ICONS[talent.tag] || Sparkles;
+              return (
+                <div key={i} className="flex items-start gap-2">
+                  <Icon size={12} className="text-primary mt-0.5 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-foreground">{talent.tag}</span>
+                      <span className="text-[10px] text-primary font-bold">{talent.score}</span>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground leading-snug">{talent.evidence}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {talentProfile.hiddenSkills.length > 0 && (
+            <div className="mt-2 pt-2 border-t border-primary/10">
+              <p className="text-[10px] text-muted-foreground mb-1">Unlisted skills from project history:</p>
+              <div className="flex flex-wrap gap-1">
+                {talentProfile.hiddenSkills.slice(0, 6).map(s => (
+                  <span key={s} className="px-1.5 py-0 text-[10px] rounded bg-primary/10 text-primary">{s}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          {talentProfile.peakPerformanceProject && (
+            <div className="mt-2 pt-2 border-t border-primary/10">
+              <p className="text-[10px] text-muted-foreground">
+                Peak: <span className="text-foreground font-medium">{talentProfile.peakPerformanceProject.name}</span>
+                {' '}({talentProfile.peakPerformanceProject.score}/5)
+              </p>
+              <p className="text-[10px] text-muted-foreground italic">{talentProfile.peakPerformanceProject.contribution.slice(0, 100)}</p>
             </div>
           )}
         </div>
