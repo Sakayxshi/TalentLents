@@ -17,6 +17,30 @@ const expectedColumns = [
   'current_project', 'project_position', 'peer_feedback_score'
 ];
 
+function ExpectedColumnsCollapsible() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-6">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider font-medium hover:text-foreground transition-colors"
+      >
+        Expected Columns
+        {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+      </button>
+      {open && (
+        <div className="flex flex-wrap gap-1.5 mt-3 animate-fade-in-up">
+          {expectedColumns.map(col => (
+            <span key={col} className="px-2 py-1 text-xs rounded-md bg-secondary text-secondary-foreground font-mono">
+              {col}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function UploadPage() {
   const navigate = useNavigate();
   const { setEmployees, uploadStats, markPageComplete } = useStore();

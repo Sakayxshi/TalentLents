@@ -86,28 +86,29 @@ export default function GapAnalysisPage() {
         <MetricCard label="Critical Gaps" value={critical} className="border-l-4 border-l-destructive" />
       </div>
 
-      {/* Bar chart */}
       <div className="card-surface p-5 mb-6">
         <h3 className="font-semibold text-foreground mb-4">Staffing Overview</h3>
         <div className="space-y-3">
-          {analysis.map(r => (
-            <div key={r.role}>
-              <div className="flex justify-between text-xs mb-1">
-                <span className="text-muted-foreground">{r.role}</span>
-                <span className="text-muted-foreground">{r.filled}/{r.headcount}</span>
+          {analysis.map(r => {
+            const filledPct = (r.filled / Math.max(r.headcount, 1)) * 100;
+            const externalPct = (r.externalNeeded / Math.max(r.headcount, 1)) * 100;
+            return (
+              <div key={r.role}>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-muted-foreground">{r.role}</span>
+                  <span className="text-muted-foreground">{r.filled}/{r.headcount}</span>
+                </div>
+                <div className="h-4 bg-muted rounded-full overflow-hidden flex relative">
+                  <div className="bg-primary h-full" style={{ width: `${filledPct}%` }} />
+                  {r.externalNeeded > 0 && <div className="bg-destructive h-full" style={{ width: `${externalPct}%` }} />}
+                  <div className="absolute right-0 top-0 h-full w-0.5 bg-foreground/30" />
+                </div>
               </div>
-              <div className="h-4 bg-secondary rounded-full overflow-hidden flex relative">
-                <div className="bg-primary h-full" style={{ width: `${(r.filled / Math.max(r.headcount, 1)) * 100}%` }} />
-                {r.upskillable.length > 0 && <div className="bg-warning h-full" style={{ width: `${(Math.min(r.upskillable.length, r.gap) / Math.max(r.headcount, 1)) * 100}%` }} />}
-                {r.externalNeeded > 0 && <div className="bg-destructive h-full" style={{ width: `${(r.externalNeeded / Math.max(r.headcount, 1)) * 100}%` }} />}
-                <div className="absolute right-0 top-0 h-full w-0.5 bg-foreground/30" />
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
         <div className="flex gap-4 mt-3 text-xs text-muted-foreground">
           <span className="flex items-center gap-1"><span className="w-3 h-3 bg-primary rounded" /> On Roster</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-3 bg-warning rounded" /> Internal Upskill</span>
           <span className="flex items-center gap-1"><span className="w-3 h-3 bg-destructive rounded" /> External Hire</span>
         </div>
       </div>
