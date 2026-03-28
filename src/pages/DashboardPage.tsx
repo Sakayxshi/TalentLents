@@ -6,9 +6,10 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts';
-import { Sparkles, AlertTriangle, TrendingUp, Users, CheckCircle2, XCircle, ChevronDown, ChevronUp, Pencil, Brain } from 'lucide-react';
+import { Sparkles, AlertTriangle, TrendingUp, Users, CheckCircle2, XCircle, ChevronDown, ChevronUp, Pencil, Brain, Search, Plus, Minus, UserPlus } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { calculateCompositeScore } from '@/lib/scoring';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 const roleSkillsMap: Record<string, { skills: string[]; certs: string[] }> = {
   'Battery Engineer': { skills: ['battery chemistry', 'thermal management', 'bms design', 'cell testing'], certs: ['ISO 26262', 'EV Safety Level 2'] },
@@ -94,6 +95,8 @@ export default function DashboardPage() {
   });
   const [generating, setGenerating] = useState(false);
   const [expandedProsConsId, setExpandedProsConsId] = useState<string | null>(null);
+  const [customSearch, setCustomSearch] = useState('');
+  const [customRoleFilter, setCustomRoleFilter] = useState('All');
 
   // Compute estimated auto-assign count per scenario
   const scenarioAssignCounts = useMemo(() => {
@@ -509,7 +512,116 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Radar + Gap bars */}
+          {/* Manual Employee Assignment for Scenario C */}
+          {selectedScenarioId === 'custom' && employees.length > 0 && (
+            <div className="card-surface p-5 mb-6">
+              <div className="flex items-center gap-2 mb-4">
+                <UserPlus size={16} className="text-primary" />
+                <h3 className="font-semibold text-foreground">Assign Employees to Roster</h3>
+                <span className="text-xs text-muted-foreground ml-1">— search and add team members manually</span>
+                {roster.length > 0 && (
+                  <span className="ml-auto text-xs font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                    {roster.length} assigned
+                  </span>
+                )}
+              </div>
+
+              {/* Search & filter bar */}
+              <div className="flex gap-3 mb-4">
+                <div className="relative flex-1">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder="Search by name, skills, or department..."
+                    value={customSearch}
+                    onChange={e => setCustomSearch(e.target.value)}
+                    className="pl-9 h-9 text-sm"
+                  />
+                </div>
+                <select
+                  value={customRoleFilter}
+                  onChange={e => setCustomRoleFilter(e.target.value)}
+                  className="h-9 rounded-lg bg-secondary border border-border px-3 text-xs text-foreground"
+                >
+                  <option value="All">All Roles</option>
+                  {[...new Set(employees.map(e => e.role))].sort().map(r => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Employee list */}
+              <ScrollArea className="h-[320px]">
+                <div className="space-y-1.5 pr-3">
+                  {employees
+                    .filter(emp => {
+                      const search = customSearch.toLowerCase();
+                      const matchesSearch = !search ||
+                        emp.name.toLowerCase().includes(search) ||
+                        (emp.technical_skills || '').toLowerCase().includes(search) ||
+                        emp.department.toLowerCase().includes(search) ||
+                        emp.role.toLowerCase().includes(search);
+                      const matchesRole = customRoleFilter === 'All' || emp.role === customRoleFilter;
+                      return matchesSearch && matchesRole;
+                    })
+                    .slice(0, 50)
+                    .map(emp => {
+                      const isOnRoster = roster.includes(emp.employee_id);
+                      const allSkills = selectedScenario?.roles.flatMap(r => r.requiredSkills) || [];
+                      const score = calculateCompositeScore(emp, allSkills, [], form.priority);
+                      return (
+                        <div
+                          key={emp.employee_id}
+                          className={`flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors ${
+                            isOnRoster ? 'bg-primary/8 border border-primary/15' : 'bg-secondary/50 border border-transparent hover:bg-secondary'
+                          }`}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-foreground truncate">{emp.name}</span>
+                              {isOnRoster && (
+                                <span className="text-[10px] font-medium uppercase tracking-wider text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+                                  Rostered
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-xs text-muted-foreground">{emp.role}</span>
+                              <span className="text-[10px] text-muted-foreground/60">•</span>
+                              <span className="text-xs text-muted-foreground">{emp.department}</span>
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0 mr-2">
+                            <span className={`text-sm font-bold ${
+                              score.total >= 80 ? 'text-success' : score.total >= 60 ? 'text-warning' : 'text-destructive'
+                            }`}>
+                              {score.total}
+                            </span>
+                            <p className="text-[10px] text-muted-foreground">score</p>
+                          </div>
+                          <Button
+                            variant={isOnRoster ? 'outline' : 'default'}
+                            size="sm"
+                            className="h-7 w-7 p-0 shrink-0"
+                            onClick={() => {
+                              if (isOnRoster) {
+                                removeFromRoster(emp.employee_id);
+                                toast({ title: 'Removed', description: `${emp.name} removed from roster` });
+                              } else {
+                                addToRoster(emp.employee_id);
+                                toast({ title: 'Added', description: `${emp.name} added to roster` });
+                              }
+                            }}
+                          >
+                            {isOnRoster ? <Minus size={14} /> : <Plus size={14} />}
+                          </Button>
+                        </div>
+                      );
+                    })}
+                </div>
+              </ScrollArea>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-4 mb-6">
             <div className="card-surface p-5">
               <h3 className="font-semibold text-foreground mb-4">Team Competency Estimate</h3>
