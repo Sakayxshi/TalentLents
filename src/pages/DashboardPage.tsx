@@ -81,7 +81,7 @@ function getProsCons(id: string, projectName: string): { pros: string[]; cons: s
 }
 
 export default function DashboardPage() {
-  const { projectConfig, setProjectConfig, scenarios, setScenarios, selectScenario, selectedScenarioId, markPageComplete, employees, addToRoster, removeFromRoster } = useStore();
+  const { projectConfig, setProjectConfig, scenarios, setScenarios, selectScenario, selectedScenarioId, markPageComplete, employees, addToRoster, removeFromRoster, roster } = useStore();
   const { toast } = useToast();
   const [form, setForm] = useState({
     name: projectConfig?.name || '',
@@ -94,6 +94,18 @@ export default function DashboardPage() {
   });
   const [generating, setGenerating] = useState(false);
   const [expandedProsConsId, setExpandedProsConsId] = useState<string | null>(null);
+
+  // Compute estimated auto-assign count per scenario
+  const scenarioAssignCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    scenarios.forEach(s => {
+      if (s.id === 'custom') { counts[s.id] = 0; return; }
+      if (s.id === selectedScenarioId) { counts[s.id] = roster.length; return; }
+      // Estimate by summing min(headcount, internalAvailable) per role
+      counts[s.id] = s.roles.reduce((sum, r) => sum + Math.min(r.headcount, r.internalAvailable), 0);
+    });
+    return counts;
+  }, [scenarios, selectedScenarioId, roster]);
 
   // Compute internal available count for a role by scanning employees
   const computeInternalAvailable = useCallback((role: string, requiredSkills: string[]): number => {
