@@ -1,12 +1,12 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useStore, Scenario, RoleRequirement } from '@/store/useStore';
-import { PageHeader, MetricCard, Badge } from '@/components/ui/MetricCard';
+import { PageHeader, Badge } from '@/components/ui/MetricCard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts';
-import { Sparkles, AlertTriangle, TrendingUp, Users } from 'lucide-react';
+import { Sparkles, AlertTriangle, TrendingUp, Users, CheckCircle2, XCircle, ChevronDown, ChevronUp, Pencil, Brain } from 'lucide-react';
 
 const defaultRoles: RoleRequirement[] = [
   { role: 'Battery Engineer', headcount: 25, internalAvailable: 12, gap: 13 },
@@ -28,6 +28,73 @@ const radarData = [
   { subject: 'Certifications', A: 45 },
 ];
 
+function getProjectBasedNames(projectName: string): { optimalLabel: string; leanLabel: string } {
+  const lower = projectName.toLowerCase();
+  if (lower.includes('battery') || lower.includes('gigafactory') || lower.includes('ev')) {
+    return { optimalLabel: 'Full-Scale Launch', leanLabel: 'Phased Rollout' };
+  }
+  if (lower.includes('software') || lower.includes('digital') || lower.includes('platform')) {
+    return { optimalLabel: 'Rapid Delivery', leanLabel: 'Agile MVP' };
+  }
+  if (lower.includes('autonomous') || lower.includes('self-driving') || lower.includes('adas')) {
+    return { optimalLabel: 'Accelerated Program', leanLabel: 'Core-First Approach' };
+  }
+  if (lower.includes('manufacturing') || lower.includes('production') || lower.includes('factory')) {
+    return { optimalLabel: 'Full Production', leanLabel: 'Pilot Line' };
+  }
+  return { optimalLabel: 'Optimal Deployment', leanLabel: 'Lean Execution' };
+}
+
+function generateAIOverview(projectName: string, scenario: Scenario | undefined): string {
+  if (!scenario) return '';
+  const totalGap = scenario.roles.reduce((sum, r) => sum + r.gap, 0);
+  const totalNeeded = scenario.roles.reduce((sum, r) => sum + r.headcount, 0);
+  const totalAvail = scenario.roles.reduce((sum, r) => sum + r.internalAvailable, 0);
+  const fillRate = totalNeeded > 0 ? Math.round((totalAvail / totalNeeded) * 100) : 0;
+  const criticalRoles = scenario.roles.filter(r => r.gap > r.headcount * 0.5).map(r => r.role);
+
+  return `Based on the "${scenario.label}" scenario for ${projectName || 'this project'}, the team requires ${totalNeeded} professionals across ${scenario.roles.length} roles. Currently, ${totalAvail} positions (${fillRate}%) can be filled internally, leaving a gap of ${totalGap} positions requiring external hiring or upskilling.${criticalRoles.length > 0 ? ` Critical shortages exist in ${criticalRoles.join(', ')} — these roles have over 50% unfilled capacity and should be prioritized in recruitment pipelines.` : ' All roles have manageable coverage levels.'} The role breakdown below details each position's staffing requirements and can be adjusted to model different hiring strategies.`;
+}
+
+function generateProsCons(id: string, projectName: string): { pros: string[]; cons: string[] } {
+  const lower = projectName.toLowerCase();
+  const domain = lower.includes('battery') || lower.includes('ev') ? 'production' : 'delivery';
+
+  if (id === 'optimal') {
+    return {
+      pros: [
+        `Full team capacity ensures on-time ${domain}`,
+        'Redundancy across critical roles reduces single-point-of-failure risk',
+        'Enables parallel workstreams and faster iteration cycles',
+        'Strong competitive positioning with fully-staffed teams',
+      ],
+      cons: [
+        'Highest cost scenario — significant upfront investment required',
+        'Larger team requires more coordination and management overhead',
+        'Recruiting at scale may extend initial ramp-up period',
+        'Higher burn rate if project scope changes or delays occur',
+      ],
+    };
+  }
+  if (id === 'lean') {
+    return {
+      pros: [
+        'Lower cost with focused resource allocation',
+        'Smaller team is easier to coordinate and align',
+        'Reduced financial risk if project pivots',
+        'Forces prioritization of highest-impact activities',
+      ],
+      cons: [
+        `Extended timeline may delay ${domain} milestones`,
+        'Limited redundancy — key person dependencies increase risk',
+        'May require phased feature delivery or scope reduction',
+        'Team may face burnout from higher individual workloads',
+      ],
+    };
+  }
+  return { pros: [], cons: [] };
+}
+
 export default function DashboardPage() {
   const { projectConfig, setProjectConfig, scenarios, setScenarios, selectScenario, selectedScenarioId, markPageComplete, employees } = useStore();
   const [form, setForm] = useState({
@@ -40,12 +107,12 @@ export default function DashboardPage() {
     staffEstimate: projectConfig?.staffEstimate || '',
   });
   const [generating, setGenerating] = useState(false);
+  const [expandedProsConsId, setExpandedProsConsId] = useState<string | null>(null);
 
   const handleGenerate = () => {
     setGenerating(true);
     setProjectConfig(form);
 
-    // Count available internals from uploaded employee data
     const computeRoles = (multiplier: number): RoleRequirement[] =>
       defaultRoles.map(r => {
         const hc = Math.round(r.headcount * multiplier);
@@ -55,22 +122,28 @@ export default function DashboardPage() {
         return { ...r, headcount: hc, internalAvailable: Math.min(avail, hc), gap: Math.max(0, hc - Math.min(avail, hc)) };
       });
 
+    const { optimalLabel, leanLabel } = getProjectBasedNames(form.name);
+
     setTimeout(() => {
       const scenarioData: Scenario[] = [
         {
-          id: 'optimal', name: 'Scenario A', label: 'Optimal',
+          id: 'optimal', name: 'Scenario A', label: optimalLabel,
           totalHeadcount: 95, costEstimate: '€18.5M', timeline: '9 months', risk: 'Low',
           roles: computeRoles(1),
+          ...generateProsCons('optimal', form.name),
         },
         {
-          id: 'lean', name: 'Scenario B', label: 'Lean',
+          id: 'lean', name: 'Scenario B', label: leanLabel,
           totalHeadcount: 72, costEstimate: '€12.8M', timeline: '14 months', risk: 'Medium',
           roles: computeRoles(0.75),
+          ...generateProsCons('lean', form.name),
         },
         {
           id: 'custom', name: 'Scenario C', label: 'Custom',
-          totalHeadcount: 0, costEstimate: '—', timeline: '—', risk: 'Medium',
+          totalHeadcount: 0, costEstimate: '—', timeline: '—', risk: 'None',
           roles: computeRoles(0).map(r => ({ ...r, headcount: 0, gap: 0 })),
+          pros: [],
+          cons: [],
         },
       ];
       setScenarios(scenarioData);
@@ -79,7 +152,22 @@ export default function DashboardPage() {
     }, 1500);
   };
 
+  const handleRoleHeadcountChange = useCallback((scenarioId: string, roleIndex: number, newHeadcount: number) => {
+    const updated = scenarios.map(s => {
+      if (s.id !== scenarioId) return s;
+      const newRoles = s.roles.map((r, i) => {
+        if (i !== roleIndex) return r;
+        const hc = Math.max(0, newHeadcount);
+        return { ...r, headcount: hc, gap: Math.max(0, hc - r.internalAvailable) };
+      });
+      const totalHc = newRoles.reduce((sum, r) => sum + r.headcount, 0);
+      return { ...s, roles: newRoles, totalHeadcount: totalHc };
+    });
+    setScenarios(updated);
+  }, [scenarios, setScenarios]);
+
   const riskColors: Record<string, string> = { Low: 'badge-green', Medium: 'badge-amber', High: 'badge-red' };
+  const selectedScenario = scenarios.find(s => s.id === selectedScenarioId);
 
   return (
     <div>
@@ -137,36 +225,108 @@ export default function DashboardPage() {
         <>
           <div className="grid grid-cols-3 gap-4 mb-6">
             {scenarios.map(s => (
-              <div key={s.id} className={`card-surface p-5 transition-all cursor-pointer ${selectedScenarioId === s.id ? 'ring-2 ring-primary' : ''}`}>
-                <div className="flex justify-between items-start mb-3">
-                  <div>
-                    <p className="text-xs text-muted-foreground">{s.name}</p>
-                    <h3 className="text-lg font-bold text-foreground">{s.label}</h3>
+              <div key={s.id} className="space-y-0">
+                <div
+                  className={`card-surface p-5 transition-all cursor-pointer ${selectedScenarioId === s.id ? 'ring-2 ring-primary' : ''} ${expandedProsConsId === s.id ? 'rounded-b-none' : ''}`}
+                  onClick={() => setExpandedProsConsId(expandedProsConsId === s.id ? null : s.id)}
+                >
+                  <div className="flex justify-between items-start mb-3">
+                    <div>
+                      <p className="text-xs text-muted-foreground">{s.name}</p>
+                      <h3 className="text-lg font-bold text-foreground">{s.label}</h3>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {s.risk !== 'None' && <Badge variant={riskColors[s.risk]}>{s.risk} Risk</Badge>}
+                      {s.id !== 'custom' && (expandedProsConsId === s.id ? <ChevronUp size={16} className="text-muted-foreground" /> : <ChevronDown size={16} className="text-muted-foreground" />)}
+                    </div>
                   </div>
-                  <Badge variant={riskColors[s.risk]}>{s.risk} Risk</Badge>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between"><span className="text-muted-foreground">Headcount</span><span className="text-foreground font-medium">{s.totalHeadcount}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Cost</span><span className="text-foreground font-medium">{s.costEstimate}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Timeline</span><span className="text-foreground font-medium">{s.timeline}</span></div>
+                  </div>
+                  <Button
+                    variant={selectedScenarioId === s.id ? 'default' : 'outline'}
+                    size="sm"
+                    className="mt-4 w-full"
+                    onClick={(e) => { e.stopPropagation(); selectScenario(s.id); }}
+                  >
+                    {selectedScenarioId === s.id ? 'Selected' : 'Select Scenario'}
+                  </Button>
                 </div>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Headcount</span><span className="text-foreground font-medium">{s.totalHeadcount}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Cost</span><span className="text-foreground font-medium">{s.costEstimate}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Timeline</span><span className="text-foreground font-medium">{s.timeline}</span></div>
-                </div>
-                <Button variant={selectedScenarioId === s.id ? 'default' : 'outline'} size="sm" className="mt-4 w-full" onClick={() => selectScenario(s.id)}>
-                  {selectedScenarioId === s.id ? 'Selected' : 'Select Scenario'}
-                </Button>
+
+                {/* Pros & Cons Dropdown */}
+                {expandedProsConsId === s.id && s.pros.length > 0 && (
+                  <div className="card-surface rounded-t-none border-t-0 p-4 space-y-3">
+                    <div>
+                      <p className="text-xs font-semibold text-success uppercase tracking-wider mb-2">Pros</p>
+                      <ul className="space-y-1.5">
+                        {s.pros.map((pro, i) => (
+                          <li key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                            <CheckCircle2 size={13} className="text-success mt-0.5 shrink-0" />
+                            {pro}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-destructive uppercase tracking-wider mb-2">Cons</p>
+                      <ul className="space-y-1.5">
+                        {s.cons.map((con, i) => (
+                          <li key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                            <XCircle size={13} className="text-destructive mt-0.5 shrink-0" />
+                            {con}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                )}
+                {expandedProsConsId === s.id && s.id === 'custom' && (
+                  <div className="card-surface rounded-t-none border-t-0 p-4">
+                    <p className="text-xs text-muted-foreground italic">Configure role headcounts below to generate pros and cons for your custom scenario.</p>
+                  </div>
+                )}
               </div>
             ))}
           </div>
 
-          {/* Role Grid */}
+          {/* AI Overview */}
           {selectedScenarioId && (
             <div className="card-surface p-5 mb-6">
-              <h3 className="font-semibold text-foreground mb-4">Role Breakdown</h3>
+              <div className="flex items-center gap-2 mb-3">
+                <Brain size={18} className="text-primary" />
+                <h3 className="font-semibold text-foreground">AI Project Analysis</h3>
+              </div>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                {generateAIOverview(form.name, selectedScenario)}
+              </p>
+            </div>
+          )}
+
+          {/* Role Grid — Editable */}
+          {selectedScenarioId && (
+            <div className="card-surface p-5 mb-6">
+              <div className="flex items-center gap-2 mb-4">
+                <Pencil size={15} className="text-muted-foreground" />
+                <h3 className="font-semibold text-foreground">Role Breakdown</h3>
+                <span className="text-xs text-muted-foreground ml-1">— click headcount to edit</span>
+              </div>
               <div className="grid grid-cols-4 gap-3">
-                {(scenarios.find(s => s.id === selectedScenarioId)?.roles || []).map(r => (
+                {(selectedScenario?.roles || []).map((r, idx) => (
                   <div key={r.role} className="bg-secondary rounded-lg p-3">
                     <p className="text-sm font-medium text-foreground truncate">{r.role}</p>
-                    <div className="flex justify-between text-xs text-muted-foreground mt-2">
-                      <span>Need: {r.headcount}</span>
+                    <div className="flex justify-between items-center text-xs text-muted-foreground mt-2">
+                      <span className="flex items-center gap-1">
+                        Need:
+                        <input
+                          type="number"
+                          min={0}
+                          value={r.headcount}
+                          onChange={e => handleRoleHeadcountChange(selectedScenarioId, idx, Number(e.target.value))}
+                          className="w-12 bg-background border border-border rounded px-1.5 py-0.5 text-xs text-foreground text-center focus:outline-none focus:ring-1 focus:ring-primary"
+                        />
+                      </span>
                       <span className="text-success">Have: {r.internalAvailable}</span>
                     </div>
                     {r.gap > 0 && <p className="text-xs text-destructive mt-1">Gap: {r.gap}</p>}
@@ -192,7 +352,7 @@ export default function DashboardPage() {
             <div className="card-surface p-5">
               <h3 className="font-semibold text-foreground mb-4">Gap Analysis Preview</h3>
               <div className="space-y-3">
-                {(scenarios.find(s => s.id === selectedScenarioId)?.roles || defaultRoles).slice(0, 6).map(r => (
+                {(selectedScenario?.roles || defaultRoles).slice(0, 6).map(r => (
                   <div key={r.role}>
                     <div className="flex justify-between text-xs mb-1">
                       <span className="text-muted-foreground">{r.role}</span>
