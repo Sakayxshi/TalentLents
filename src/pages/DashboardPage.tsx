@@ -9,6 +9,7 @@ import { RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Responsi
 import { Sparkles, AlertTriangle, TrendingUp, Users, CheckCircle2, XCircle, ChevronDown, ChevronUp, Pencil, Brain, Search, Plus, Minus, UserPlus, Save } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { calculateCompositeScore } from '@/lib/scoring';
+import { invokeAI, GeneratedScenarios } from '@/lib/aiService';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 const roleSkillsMap: Record<string, { skills: string[]; certs: string[] }> = {
@@ -118,7 +119,7 @@ export default function DashboardPage() {
     }).length;
   }, [employees]);
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     if (!form.name) {
       toast({ title: 'Missing Info', description: 'Please enter a project name', variant: 'destructive' });
       return;
@@ -126,55 +127,43 @@ export default function DashboardPage() {
     setGenerating(true);
     setProjectConfig(form);
 
-    const { optimalLabel, leanLabel } = getProjectBasedNames(form.name);
-    const allRoles = Object.keys(roleSkillsMap);
-    const selectedRoles = allRoles.slice(0, 8);
+    try {
+      // Build employee summary for AI
+      const departments = [...new Set(employees.map(e => e.department))];
+      const topRoles = [...new Set(employees.map(e => e.role))].slice(0, 10);
+      const locations = [...new Set(employees.map(e => e.location))];
+      const avgPerformance = employees.length > 0
+        ? (employees.reduce((a, e) => a + (e.performance_rating || 3), 0) / employees.length).toFixed(1)
+        : '3.0';
 
-    const computeRoles = (multiplier: number): RoleRequirement[] =>
-      selectedRoles.map(roleName => {
-        const config = roleSkillsMap[roleName] || { skills: [], certs: [] };
-        const hc = Math.max(1, Math.round((5 + Math.random() * 30) * multiplier));
-        const avail = computeInternalAvailable(roleName, config.skills);
-        return {
-          role: roleName, headcount: hc, internalAvailable: Math.min(avail, hc),
-          gap: Math.max(0, hc - Math.min(avail, hc)), requiredSkills: config.skills, requiredCerts: config.certs,
-        };
+      const result = await invokeAI<GeneratedScenarios>('generate-scenarios', {
+        projectConfig: form,
+        employeeSummary: { total: employees.length, departments, topRoles, locations, avgPerformance },
       });
 
-    setTimeout(() => {
-      const optRoles = computeRoles(1);
-      const leanRoles = computeRoles(0.7);
-      const optTotal = optRoles.reduce((s, r) => s + r.headcount, 0);
-      const leanTotal = leanRoles.reduce((s, r) => s + r.headcount, 0);
+      // Map AI response to app format, computing internalAvailable from actual employee data
+      const scenarioData: Scenario[] = result.scenarios.map(s => ({
+        ...s,
+        roles: s.roles.map(r => {
+          const avail = computeInternalAvailable(r.role, r.requiredSkills);
+          const internalAvailable = Math.min(avail, r.headcount);
+          return {
+            ...r,
+            internalAvailable,
+            gap: Math.max(0, r.headcount - internalAvailable),
+          };
+        }),
+      }));
 
-      const scenarioData: Scenario[] = [
-        {
-          id: 'optimal', name: 'Scenario A', label: optimalLabel, totalHeadcount: optTotal,
-          costEstimate: `€${(optTotal * 0.18).toFixed(1)}M`, timeline: '9 months', risk: 'Low',
-          roles: optRoles, rationale: `Full staffing for maximum velocity on ${form.name}`,
-          ...getProsCons('optimal', form.name),
-        },
-        {
-          id: 'lean', name: 'Scenario B', label: leanLabel, totalHeadcount: leanTotal,
-          costEstimate: `€${(leanTotal * 0.15).toFixed(1)}M`, timeline: '14 months', risk: 'Medium',
-          roles: leanRoles, rationale: `Reduced staffing with phased approach for ${form.name}`,
-          ...getProsCons('lean', form.name),
-        },
-        {
-          id: 'custom', name: 'Scenario C', label: 'Custom', totalHeadcount: 0,
-          costEstimate: '—', timeline: '—', risk: 'None',
-          roles: selectedRoles.map(roleName => {
-            const config = roleSkillsMap[roleName] || { skills: [], certs: [] };
-            return { role: roleName, headcount: 0, internalAvailable: 0, gap: 0, requiredSkills: config.skills, requiredCerts: config.certs };
-          }),
-          pros: [], cons: [], rationale: '',
-        },
-      ];
       setScenarios(scenarioData);
-      setGenerating(false);
       markPageComplete(2);
-      toast({ title: 'Staffing Plan Generated', description: `${scenarioData.length} scenarios created` });
-    }, 1500);
+      toast({ title: 'AI Staffing Plan Generated', description: `${scenarioData.length} scenarios created by AI` });
+    } catch (err) {
+      console.error('Scenario generation failed:', err);
+      toast({ title: 'Generation Failed', description: err instanceof Error ? err.message : 'Please try again', variant: 'destructive' });
+    } finally {
+      setGenerating(false);
+    }
   };
 
   const handleRoleHeadcountChange = useCallback((scenarioId: string, roleIndex: number, newHeadcount: number) => {
