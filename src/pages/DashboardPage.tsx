@@ -34,13 +34,13 @@ export default function DashboardPage() {
   const { projectConfig, setProjectConfig, scenarios, setScenarios, selectScenario, selectedScenarioId, markPageComplete, employees, setEmployees, addToRoster, removeFromRoster, roster } = useStore();
   const { toast } = useToast();
   const [form, setForm] = useState({
-    name: projectConfig?.name || '',
-    description: projectConfig?.description || '',
+    name: projectConfig?.name || 'EV Battery Gigafactory — Munich',
+    description: projectConfig?.description || 'Strategic initiative to establish a dedicated in-house battery cell production facility at our Munich campus, reducing dependency on third-party cell suppliers (CATL, Samsung SDI) and securing long-term cost competitiveness for our Neue Klasse platform. Scope includes greenfield facility buildout, production line commissioning, pilot cell validation, and integration with existing drivetrain assembly. Must align with EU Battery Regulation compliance timelines and our 2028 volume targets of 600,000+ BEV units annually.',
     targetDeadline: projectConfig?.targetDeadline || 'Q3 2026',
     budgetMin: projectConfig?.budgetMin || 15000000,
     budgetMax: projectConfig?.budgetMax || 25000000,
     priority: (projectConfig?.priority || 'Critical') as 'Critical' | 'High' | 'Medium' | 'Low',
-    staffEstimate: projectConfig?.staffEstimate || '',
+    staffEstimate: projectConfig?.staffEstimate || '80–120 people, heavy engineering — need electrochemistry specialists, battery cell R&D engineers, production line automation engineers, quality assurance leads with gigafactory experience, supply chain managers for raw materials (lithium, nickel, cobalt sourcing), HSE compliance officers, and a small embedded software team for battery management system integration. Senior hires should have prior experience at CATL, Northvolt, or Tesla Grünheide.',
   });
   const [generating, setGenerating] = useState(false);
   const [loadingBmw, setLoadingBmw] = useState(false);
