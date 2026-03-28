@@ -235,12 +235,29 @@ export default function ExecutiveSummaryPage() {
             </div>
           </div>
 
+          {aiInsights?.narrative && (
+            <div className="card-surface p-4">
+              <h3 className="text-xs text-muted-foreground uppercase tracking-wider mb-2">AI Strategic Assessment</h3>
+              <p className="text-sm text-foreground leading-relaxed">{aiInsights.narrative}</p>
+              <div className="mt-2 flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">Confidence:</span>
+                <Badge variant={aiInsights.confidence === 'High' ? 'badge-green' : aiInsights.confidence === 'Medium' ? 'badge-amber' : 'badge-red'}>{aiInsights.confidence}</Badge>
+              </div>
+            </div>
+          )}
+
           <div className="card-surface p-4">
             <h3 className="text-xs text-muted-foreground uppercase tracking-wider mb-3">Top 3 Risks</h3>
             <div className="space-y-2">
-              {risks.length > 0 ? risks.map((r, i) => (
-                <div key={i} className="flex items-center gap-2"><Badge variant={i === 0 ? 'badge-red' : 'badge-amber'}>{i === 0 ? 'High' : 'Med'}</Badge><span className="text-sm text-foreground">{r}</span></div>
-              )) : (
+              {risks.length > 0 ? risks.map((r, i) => {
+                const severity = aiInsights?.risks[i]?.severity;
+                return (
+                  <div key={i} className="flex items-center gap-2">
+                    <Badge variant={severity === 'High' || (!severity && i === 0) ? 'badge-red' : 'badge-amber'}>{severity || (i === 0 ? 'High' : 'Med')}</Badge>
+                    <span className="text-sm text-foreground">{r}</span>
+                  </div>
+                );
+              }) : (
                 <p className="text-sm text-muted-foreground">Build your team to see risk analysis</p>
               )}
             </div>
