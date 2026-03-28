@@ -2,9 +2,11 @@ import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '@/store/useStore';
 import { PageHeader } from '@/components/ui/MetricCard';
-import { Upload, CheckCircle2 } from 'lucide-react';
+import { Upload, CheckCircle2, Database } from 'lucide-react';
 import Papa from 'papaparse';
 import { Button } from '@/components/ui/button';
+import { generateDemoEmployees } from '@/lib/demoData';
+import { useToast } from '@/hooks/use-toast';
 
 const expectedColumns = [
   'employee_id', 'name', 'department', 'role', 'location', 'hire_date',
@@ -20,6 +22,7 @@ export default function UploadPage() {
   const { setEmployees, uploadStats, markPageComplete } = useStore();
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
 
   const handleFile = useCallback((file: File) => {
     setError(null);
@@ -64,10 +67,20 @@ export default function UploadPage() {
 
         setEmployees(employees, { total: employees.length, departments, locations, skipped });
         markPageComplete(1);
+        toast({ title: 'Upload Successful', description: `Parsed ${employees.length} employees` });
       },
       error: () => setError('Failed to parse CSV file. Please check the format.')
     });
-  }, [setEmployees, markPageComplete]);
+  }, [setEmployees, markPageComplete, toast]);
+
+  const handleLoadDemo = () => {
+    const demo = generateDemoEmployees(100);
+    const departments = new Set(demo.map(e => e.department)).size;
+    const locations = new Set(demo.map(e => e.location)).size;
+    setEmployees(demo, { total: demo.length, departments, locations, skipped: 0 });
+    markPageComplete(1);
+    toast({ title: 'Demo Data Loaded', description: '100 sample BMW employees loaded' });
+  };
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -105,6 +118,16 @@ export default function UploadPage() {
           <p className="text-foreground font-medium">Drop your employee CSV here or click to browse</p>
           <p className="text-sm text-muted-foreground mt-2">Supports .csv files</p>
         </div>
+
+        {/* Demo button */}
+        {!uploadStats && (
+          <div className="mt-4 text-center">
+            <Button variant="outline" onClick={handleLoadDemo}>
+              <Database size={16} className="mr-2" />
+              Load Demo Data (100 Employees)
+            </Button>
+          </div>
+        )}
 
         {error && (
           <div className="mt-4 p-3 badge-red rounded-lg text-sm">{error}</div>

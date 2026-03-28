@@ -1,32 +1,29 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useStore, Scenario, RoleRequirement } from '@/store/useStore';
-import { PageHeader, Badge } from '@/components/ui/MetricCard';
+import { PageHeader, MetricCard, Badge } from '@/components/ui/MetricCard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts';
 import { Sparkles, AlertTriangle, TrendingUp, Users, CheckCircle2, XCircle, ChevronDown, ChevronUp, Pencil, Brain } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { calculateCompositeScore } from '@/lib/scoring';
 
-const defaultRoles: RoleRequirement[] = [
-  { role: 'Battery Engineer', headcount: 25, internalAvailable: 12, gap: 13 },
-  { role: 'Project Manager', headcount: 8, internalAvailable: 6, gap: 2 },
-  { role: 'Data Scientist', headcount: 12, internalAvailable: 5, gap: 7 },
-  { role: 'Quality Engineer', headcount: 15, internalAvailable: 9, gap: 6 },
-  { role: 'Supply Chain Analyst', headcount: 10, internalAvailable: 4, gap: 6 },
-  { role: 'Automation Engineer', headcount: 14, internalAvailable: 7, gap: 7 },
-  { role: 'Safety Specialist', headcount: 6, internalAvailable: 3, gap: 3 },
-  { role: 'UX Designer', headcount: 5, internalAvailable: 4, gap: 1 },
-];
-
-const radarData = [
-  { subject: 'Technical Depth', A: 78 },
-  { subject: 'Leadership', A: 65 },
-  { subject: 'Delivery Speed', A: 72 },
-  { subject: 'Innovation', A: 58 },
-  { subject: 'Collaboration', A: 81 },
-  { subject: 'Certifications', A: 45 },
-];
+const roleSkillsMap: Record<string, { skills: string[]; certs: string[] }> = {
+  'Battery Engineer': { skills: ['battery chemistry', 'thermal management', 'bms design', 'cell testing'], certs: ['ISO 26262', 'EV Safety Level 2'] },
+  'Data Scientist': { skills: ['python', 'machine learning', 'deep learning', 'sql', 'tableau'], certs: ['AWS Certified', 'TensorFlow Certificate'] },
+  'Quality Engineer': { skills: ['six sigma', 'iso 9001', 'spc', 'root cause analysis', 'fmea'], certs: ['Six Sigma Green Belt', 'ISO 9001 Auditor'] },
+  'Automation Engineer': { skills: ['plc programming', 'scada', 'robotics', 'industrial iot', 'autocad'], certs: ['PMP', 'ABB Robotics'] },
+  'Supply Chain Analyst': { skills: ['sap mm', 'demand forecasting', 'logistics', 'power bi'], certs: ['APICS CSCP', 'SAP Certified'] },
+  'Safety Specialist': { skills: ['hazop', 'risk assessment', 'iso 45001', 'emergency planning'], certs: ['NEBOSH', 'ISO 45001 Lead Auditor'] },
+  'Project Manager': { skills: ['agile', 'jira', 'stakeholder management', 'budgeting', 'safe'], certs: ['PMP', 'SAFe Agilist'] },
+  'UX Designer': { skills: ['figma', 'prototyping', 'user research', 'design systems', 'css'], certs: ['Google UX Certificate'] },
+  'Software Engineer': { skills: ['c++', 'embedded systems', 'autosar', 'linux', 'git'], certs: ['AUTOSAR Certified'] },
+  'Mechanical Engineer': { skills: ['cad', 'fea', 'solidworks', 'catia', 'structural analysis'], certs: ['CATIA V5 Certified'] },
+  'Process Engineer': { skills: ['lean manufacturing', 'value stream', 'kaizen', 'process optimization'], certs: ['Lean Six Sigma Black Belt'] },
+  'Materials Scientist': { skills: ['xrd', 'sem', 'polymer science', 'nanomaterials'], certs: ['Materials Science Professional'] },
+};
 
 function getProjectBasedNames(projectName: string): { optimalLabel: string; leanLabel: string } {
   const lower = projectName.toLowerCase();
@@ -45,21 +42,9 @@ function getProjectBasedNames(projectName: string): { optimalLabel: string; lean
   return { optimalLabel: 'Optimal Deployment', leanLabel: 'Lean Execution' };
 }
 
-function generateAIOverview(projectName: string, scenario: Scenario | undefined): string {
-  if (!scenario) return '';
-  const totalGap = scenario.roles.reduce((sum, r) => sum + r.gap, 0);
-  const totalNeeded = scenario.roles.reduce((sum, r) => sum + r.headcount, 0);
-  const totalAvail = scenario.roles.reduce((sum, r) => sum + r.internalAvailable, 0);
-  const fillRate = totalNeeded > 0 ? Math.round((totalAvail / totalNeeded) * 100) : 0;
-  const criticalRoles = scenario.roles.filter(r => r.gap > r.headcount * 0.5).map(r => r.role);
-
-  return `Based on the "${scenario.label}" scenario for ${projectName || 'this project'}, the team requires ${totalNeeded} professionals across ${scenario.roles.length} roles. Currently, ${totalAvail} positions (${fillRate}%) can be filled internally, leaving a gap of ${totalGap} positions requiring external hiring or upskilling.${criticalRoles.length > 0 ? ` Critical shortages exist in ${criticalRoles.join(', ')} — these roles have over 50% unfilled capacity and should be prioritized in recruitment pipelines.` : ' All roles have manageable coverage levels.'} The role breakdown below details each position's staffing requirements and can be adjusted to model different hiring strategies.`;
-}
-
-function generateProsCons(id: string, projectName: string): { pros: string[]; cons: string[] } {
+function getProsCons(id: string, projectName: string): { pros: string[]; cons: string[] } {
   const lower = projectName.toLowerCase();
   const domain = lower.includes('battery') || lower.includes('ev') ? 'production' : 'delivery';
-
   if (id === 'optimal') {
     return {
       pros: [
@@ -70,9 +55,9 @@ function generateProsCons(id: string, projectName: string): { pros: string[]; co
       ],
       cons: [
         'Highest cost scenario — significant upfront investment required',
-        'Larger team requires more coordination and management overhead',
+        'Larger team requires more coordination overhead',
         'Recruiting at scale may extend initial ramp-up period',
-        'Higher burn rate if project scope changes or delays occur',
+        'Higher burn rate if project scope changes',
       ],
     };
   }
@@ -97,6 +82,7 @@ function generateProsCons(id: string, projectName: string): { pros: string[]; co
 
 export default function DashboardPage() {
   const { projectConfig, setProjectConfig, scenarios, setScenarios, selectScenario, selectedScenarioId, markPageComplete, employees } = useStore();
+  const { toast } = useToast();
   const [form, setForm] = useState({
     name: projectConfig?.name || '',
     description: projectConfig?.description || '',
@@ -109,46 +95,85 @@ export default function DashboardPage() {
   const [generating, setGenerating] = useState(false);
   const [expandedProsConsId, setExpandedProsConsId] = useState<string | null>(null);
 
+  // Compute internal available count for a role by scanning employees
+  const computeInternalAvailable = useCallback((role: string, requiredSkills: string[]): number => {
+    if (employees.length === 0) return 0;
+    return employees.filter(emp => {
+      const empSkills = (emp.technical_skills || '').toLowerCase();
+      const roleMatch = emp.role?.toLowerCase().includes(role.split(' ')[0].toLowerCase());
+      const skillMatch = requiredSkills.some(skill => empSkills.includes(skill.toLowerCase()));
+      return roleMatch || skillMatch;
+    }).length;
+  }, [employees]);
+
   const handleGenerate = () => {
+    if (!form.name) {
+      toast({ title: 'Missing Info', description: 'Please enter a project name', variant: 'destructive' });
+      return;
+    }
     setGenerating(true);
     setProjectConfig(form);
 
-    const computeRoles = (multiplier: number): RoleRequirement[] =>
-      defaultRoles.map(r => {
-        const hc = Math.round(r.headcount * multiplier);
-        const avail = employees.length > 0
-          ? employees.filter(e => e.role?.toLowerCase().includes(r.role.split(' ')[0].toLowerCase())).length
-          : r.internalAvailable;
-        return { ...r, headcount: hc, internalAvailable: Math.min(avail, hc), gap: Math.max(0, hc - Math.min(avail, hc)) };
-      });
-
     const { optimalLabel, leanLabel } = getProjectBasedNames(form.name);
 
+    // Determine which roles are relevant based on project description
+    const allRoles = Object.keys(roleSkillsMap);
+    const selectedRoles = allRoles.slice(0, 8); // Take first 8 roles for scenarios
+
+    const computeRoles = (multiplier: number): RoleRequirement[] =>
+      selectedRoles.map(roleName => {
+        const config = roleSkillsMap[roleName] || { skills: [], certs: [] };
+        const hc = Math.max(1, Math.round((5 + Math.random() * 30) * multiplier));
+        const avail = computeInternalAvailable(roleName, config.skills);
+        return {
+          role: roleName,
+          headcount: hc,
+          internalAvailable: Math.min(avail, hc),
+          gap: Math.max(0, hc - Math.min(avail, hc)),
+          requiredSkills: config.skills,
+          requiredCerts: config.certs,
+        };
+      });
+
     setTimeout(() => {
+      const optRoles = computeRoles(1);
+      const leanRoles = computeRoles(0.7);
+      const optTotal = optRoles.reduce((s, r) => s + r.headcount, 0);
+      const leanTotal = leanRoles.reduce((s, r) => s + r.headcount, 0);
+
       const scenarioData: Scenario[] = [
         {
           id: 'optimal', name: 'Scenario A', label: optimalLabel,
-          totalHeadcount: 95, costEstimate: '€18.5M', timeline: '9 months', risk: 'Low',
-          roles: computeRoles(1),
-          ...generateProsCons('optimal', form.name),
+          totalHeadcount: optTotal,
+          costEstimate: `€${(optTotal * 0.18).toFixed(1)}M`,
+          timeline: '9 months', risk: 'Low',
+          roles: optRoles,
+          rationale: `Full staffing for maximum velocity on ${form.name}`,
+          ...getProsCons('optimal', form.name),
         },
         {
           id: 'lean', name: 'Scenario B', label: leanLabel,
-          totalHeadcount: 72, costEstimate: '€12.8M', timeline: '14 months', risk: 'Medium',
-          roles: computeRoles(0.75),
-          ...generateProsCons('lean', form.name),
+          totalHeadcount: leanTotal,
+          costEstimate: `€${(leanTotal * 0.15).toFixed(1)}M`,
+          timeline: '14 months', risk: 'Medium',
+          roles: leanRoles,
+          rationale: `Reduced staffing with phased approach for ${form.name}`,
+          ...getProsCons('lean', form.name),
         },
         {
           id: 'custom', name: 'Scenario C', label: 'Custom',
           totalHeadcount: 0, costEstimate: '—', timeline: '—', risk: 'None',
-          roles: computeRoles(0).map(r => ({ ...r, headcount: 0, gap: 0 })),
-          pros: [],
-          cons: [],
+          roles: selectedRoles.map(roleName => {
+            const config = roleSkillsMap[roleName] || { skills: [], certs: [] };
+            return { role: roleName, headcount: 0, internalAvailable: 0, gap: 0, requiredSkills: config.skills, requiredCerts: config.certs };
+          }),
+          pros: [], cons: [], rationale: '',
         },
       ];
       setScenarios(scenarioData);
       setGenerating(false);
       markPageComplete(2);
+      toast({ title: 'Staffing Plan Generated', description: `${scenarioData.length} scenarios created` });
     }, 1500);
   };
 
@@ -158,20 +183,93 @@ export default function DashboardPage() {
       const newRoles = s.roles.map((r, i) => {
         if (i !== roleIndex) return r;
         const hc = Math.max(0, newHeadcount);
-        return { ...r, headcount: hc, gap: Math.max(0, hc - r.internalAvailable) };
+        const avail = computeInternalAvailable(r.role, r.requiredSkills);
+        return { ...r, headcount: hc, internalAvailable: Math.min(avail, hc), gap: Math.max(0, hc - Math.min(avail, hc)) };
       });
       const totalHc = newRoles.reduce((sum, r) => sum + r.headcount, 0);
-      return { ...s, roles: newRoles, totalHeadcount: totalHc };
+      return { ...s, roles: newRoles, totalHeadcount: totalHc, costEstimate: `€${(totalHc * 0.17).toFixed(1)}M` };
     });
     setScenarios(updated);
-  }, [scenarios, setScenarios]);
+  }, [scenarios, setScenarios, computeInternalAvailable]);
+
+  const selectedScenario = scenarios.find(s => s.id === selectedScenarioId);
+
+  // Compute radar data from actual employees
+  const radarData = useMemo(() => {
+    if (employees.length === 0 || !selectedScenario) {
+      return [
+        { subject: 'Technical Depth', A: 50 }, { subject: 'Leadership', A: 50 },
+        { subject: 'Delivery Speed', A: 50 }, { subject: 'Innovation', A: 50 },
+        { subject: 'Collaboration', A: 50 }, { subject: 'Certifications', A: 50 },
+      ];
+    }
+    const allReqSkills = selectedScenario.roles.flatMap(r => r.requiredSkills);
+    const matched = employees.filter(emp => {
+      const empSkills = (emp.technical_skills || '').toLowerCase();
+      return allReqSkills.some(s => empSkills.includes(s));
+    });
+    if (matched.length === 0) {
+      return [
+        { subject: 'Technical Depth', A: 30 }, { subject: 'Leadership', A: 30 },
+        { subject: 'Delivery Speed', A: 30 }, { subject: 'Innovation', A: 30 },
+        { subject: 'Collaboration', A: 30 }, { subject: 'Certifications', A: 30 },
+      ];
+    }
+    const avgPerf = matched.reduce((a, e) => a + (e.performance_rating || 3), 0) / matched.length;
+    const avgPeer = matched.reduce((a, e) => a + (e.peer_feedback_score || 3), 0) / matched.length;
+    const avgSucc = matched.reduce((a, e) => a + (e.products_deployed > 0 ? (e.successful_products_deployed / e.products_deployed) * 100 : 50), 0) / matched.length;
+    const certCount = matched.filter(e => (e.certifications || '').length > 0).length;
+
+    return [
+      { subject: 'Technical Depth', A: Math.round(avgPerf / 5 * 100) },
+      { subject: 'Leadership', A: Math.round((matched.filter(e => e.project_position === 'Lead' || e.project_position === 'Core Contributor').length / matched.length) * 100) },
+      { subject: 'Delivery Speed', A: Math.round(avgSucc) },
+      { subject: 'Innovation', A: Math.round(matched.filter(e => e.internal_moves > 1).length / matched.length * 100) },
+      { subject: 'Collaboration', A: Math.round(avgPeer / 5 * 100) },
+      { subject: 'Certifications', A: Math.round((certCount / matched.length) * 100) },
+    ];
+  }, [employees, selectedScenario]);
+
+  // Bottom summary cards from real data
+  const bottomCards = useMemo(() => {
+    if (!selectedScenario) return { criticalGaps: 0, criticalRoles: '', upskillCount: 0, avgSkillMatch: 0, flightRiskCount: 0, flightRiskNames: '' };
+    const criticalRoles = selectedScenario.roles.filter(r => r.gap > r.headcount * 0.5);
+    const highRisk = employees.filter(e => e.flight_risk?.toLowerCase() === 'high');
+    // Upskill candidates: employees not perfectly matched but with some overlap
+    const allReqSkills = selectedScenario.roles.flatMap(r => r.requiredSkills);
+    const upskillPool = employees.filter(emp => {
+      const empSkills = (emp.technical_skills || '').toLowerCase();
+      const matchCount = allReqSkills.filter(s => empSkills.includes(s)).length;
+      return matchCount > 0 && matchCount < allReqSkills.length * 0.8;
+    });
+    const avgMatch = upskillPool.length > 0
+      ? Math.round(upskillPool.reduce((a, e) => {
+          const sc = calculateCompositeScore(e, allReqSkills, []);
+          return a + sc.skillMatchPct;
+        }, 0) / upskillPool.length)
+      : 0;
+
+    return {
+      criticalGaps: criticalRoles.length,
+      criticalRoles: criticalRoles.map(r => r.role).join(', '),
+      upskillCount: upskillPool.length,
+      avgSkillMatch: avgMatch,
+      flightRiskCount: highRisk.length,
+      flightRiskNames: highRisk.slice(0, 3).map(e => e.name).join(', '),
+    };
+  }, [selectedScenario, employees]);
 
   const riskColors: Record<string, string> = { Low: 'badge-green', Medium: 'badge-amber', High: 'badge-red' };
-  const selectedScenario = scenarios.find(s => s.id === selectedScenarioId);
 
   return (
     <div>
       <PageHeader title="Project Dashboard" subtitle="Configure your initiative and generate staffing scenarios" />
+
+      {employees.length === 0 && (
+        <div className="card-surface p-8 mb-6 text-center">
+          <p className="text-muted-foreground">Please upload employee data first to enable scenario generation.</p>
+        </div>
+      )}
 
       {/* Form */}
       <div className="card-surface p-6 mb-6">
@@ -214,7 +312,7 @@ export default function DashboardPage() {
             <Input placeholder="e.g. 80-120 people, heavy engineering" value={form.staffEstimate} onChange={e => setForm({ ...form, staffEstimate: e.target.value })} className="mt-1.5" />
           </div>
         </div>
-        <Button onClick={handleGenerate} disabled={generating} className="mt-6 w-full">
+        <Button onClick={handleGenerate} disabled={generating || employees.length === 0} className="mt-6 w-full">
           <Sparkles size={16} className="mr-2" />
           {generating ? 'Generating Staffing Plan...' : 'Generate Staffing Plan'}
         </Button>
@@ -249,13 +347,12 @@ export default function DashboardPage() {
                     variant={selectedScenarioId === s.id ? 'default' : 'outline'}
                     size="sm"
                     className="mt-4 w-full"
-                    onClick={(e) => { e.stopPropagation(); selectScenario(s.id); }}
+                    onClick={(e) => { e.stopPropagation(); selectScenario(s.id); toast({ title: 'Scenario Selected', description: s.label }); }}
                   >
                     {selectedScenarioId === s.id ? 'Selected' : 'Select Scenario'}
                   </Button>
                 </div>
 
-                {/* Pros & Cons Dropdown */}
                 {expandedProsConsId === s.id && s.pros.length > 0 && (
                   <div className="card-surface rounded-t-none border-t-0 p-4 space-y-3">
                     <div>
@@ -263,8 +360,7 @@ export default function DashboardPage() {
                       <ul className="space-y-1.5">
                         {s.pros.map((pro, i) => (
                           <li key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
-                            <CheckCircle2 size={13} className="text-success mt-0.5 shrink-0" />
-                            {pro}
+                            <CheckCircle2 size={13} className="text-success mt-0.5 shrink-0" />{pro}
                           </li>
                         ))}
                       </ul>
@@ -274,8 +370,7 @@ export default function DashboardPage() {
                       <ul className="space-y-1.5">
                         {s.cons.map((con, i) => (
                           <li key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
-                            <XCircle size={13} className="text-destructive mt-0.5 shrink-0" />
-                            {con}
+                            <XCircle size={13} className="text-destructive mt-0.5 shrink-0" />{con}
                           </li>
                         ))}
                       </ul>
@@ -284,7 +379,7 @@ export default function DashboardPage() {
                 )}
                 {expandedProsConsId === s.id && s.id === 'custom' && (
                   <div className="card-surface rounded-t-none border-t-0 p-4">
-                    <p className="text-xs text-muted-foreground italic">Configure role headcounts below to generate pros and cons for your custom scenario.</p>
+                    <p className="text-xs text-muted-foreground italic">Configure role headcounts below to define your custom scenario.</p>
                   </div>
                 )}
               </div>
@@ -292,28 +387,37 @@ export default function DashboardPage() {
           </div>
 
           {/* AI Overview */}
-          {selectedScenarioId && (
+          {selectedScenarioId && selectedScenario && (
             <div className="card-surface p-5 mb-6">
               <div className="flex items-center gap-2 mb-3">
                 <Brain size={18} className="text-primary" />
                 <h3 className="font-semibold text-foreground">AI Project Analysis</h3>
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                {generateAIOverview(form.name, selectedScenario)}
+                Based on the "{selectedScenario.label}" scenario for {form.name || 'this project'}, the team requires{' '}
+                <span className="text-foreground font-medium">{selectedScenario.totalHeadcount}</span> professionals across{' '}
+                <span className="text-foreground font-medium">{selectedScenario.roles.length}</span> roles. Currently,{' '}
+                <span className="text-foreground font-medium">{selectedScenario.roles.reduce((s, r) => s + r.internalAvailable, 0)}</span> positions
+                ({selectedScenario.totalHeadcount > 0 ? Math.round(selectedScenario.roles.reduce((s, r) => s + r.internalAvailable, 0) / selectedScenario.totalHeadcount * 100) : 0}%)
+                can be filled internally, leaving a gap of{' '}
+                <span className="text-foreground font-medium">{selectedScenario.roles.reduce((s, r) => s + r.gap, 0)}</span> positions.
+                {bottomCards.criticalGaps > 0 && (
+                  <> Critical shortages exist in <span className="text-destructive font-medium">{bottomCards.criticalRoles}</span> — these roles have over 50% unfilled capacity.</>
+                )}
               </p>
             </div>
           )}
 
           {/* Role Grid — Editable */}
-          {selectedScenarioId && (
+          {selectedScenarioId && selectedScenario && (
             <div className="card-surface p-5 mb-6">
               <div className="flex items-center gap-2 mb-4">
                 <Pencil size={15} className="text-muted-foreground" />
                 <h3 className="font-semibold text-foreground">Role Breakdown</h3>
-                <span className="text-xs text-muted-foreground ml-1">— click headcount to edit</span>
+                <span className="text-xs text-muted-foreground ml-1">— edit headcount to model different strategies</span>
               </div>
               <div className="grid grid-cols-4 gap-3">
-                {(selectedScenario?.roles || []).map((r, idx) => (
+                {selectedScenario.roles.map((r, idx) => (
                   <div key={r.role} className="bg-secondary rounded-lg p-3">
                     <p className="text-sm font-medium text-foreground truncate">{r.role}</p>
                     <div className="flex justify-between items-center text-xs text-muted-foreground mt-2">
@@ -330,13 +434,22 @@ export default function DashboardPage() {
                       <span className="text-success">Have: {r.internalAvailable}</span>
                     </div>
                     {r.gap > 0 && <p className="text-xs text-destructive mt-1">Gap: {r.gap}</p>}
+                    {r.requiredSkills.length > 0 && (
+                      <div className="flex flex-wrap gap-0.5 mt-2">
+                        {r.requiredSkills.slice(0, 3).map(s => <span key={s} className="px-1 py-0 text-[9px] rounded bg-primary/10 text-primary">{s}</span>)}
+                      </div>
+                    )}
                   </div>
                 ))}
+              </div>
+              <div className="mt-3 flex justify-between text-sm border-t border-border pt-3">
+                <span className="text-muted-foreground font-medium">Total</span>
+                <span className="text-foreground font-bold">{selectedScenario.totalHeadcount} people</span>
               </div>
             </div>
           )}
 
-          {/* Radar Chart */}
+          {/* Radar + Gap bars */}
           <div className="grid grid-cols-2 gap-4 mb-6">
             <div className="card-surface p-5">
               <h3 className="font-semibold text-foreground mb-4">Team Competency Estimate</h3>
@@ -352,7 +465,7 @@ export default function DashboardPage() {
             <div className="card-surface p-5">
               <h3 className="font-semibold text-foreground mb-4">Gap Analysis Preview</h3>
               <div className="space-y-3">
-                {(selectedScenario?.roles || defaultRoles).slice(0, 6).map(r => (
+                {(selectedScenario?.roles || []).slice(0, 6).map(r => (
                   <div key={r.role}>
                     <div className="flex justify-between text-xs mb-1">
                       <span className="text-muted-foreground">{r.role}</span>
@@ -375,24 +488,24 @@ export default function DashboardPage() {
                 <AlertTriangle className="text-destructive" size={18} />
                 <h4 className="font-semibold text-foreground text-sm">Critical Gaps</h4>
               </div>
-              <p className="metric-value text-destructive">3</p>
-              <p className="text-xs text-muted-foreground mt-2">Battery Engineer, Data Scientist, Automation Engineer</p>
+              <p className="metric-value text-destructive">{bottomCards.criticalGaps}</p>
+              <p className="text-xs text-muted-foreground mt-2">{bottomCards.criticalRoles || 'No critical gaps'}</p>
             </div>
             <div className="card-surface p-5">
               <div className="flex items-center gap-2 mb-3">
                 <TrendingUp className="text-warning" size={18} />
                 <h4 className="font-semibold text-foreground text-sm">Upskill Candidates</h4>
               </div>
-              <p className="metric-value text-warning">18</p>
-              <p className="text-xs text-muted-foreground mt-2">Avg skill match: 72% · Avg cost: €8,500</p>
+              <p className="metric-value text-warning">{bottomCards.upskillCount}</p>
+              <p className="text-xs text-muted-foreground mt-2">Avg skill match: {bottomCards.avgSkillMatch}%</p>
             </div>
             <div className="card-surface p-5">
               <div className="flex items-center gap-2 mb-3">
                 <Users className="text-score-amber" size={18} />
                 <h4 className="font-semibold text-foreground text-sm">Flight Risk Alerts</h4>
               </div>
-              <p className="metric-value text-score-amber">7</p>
-              <p className="text-xs text-muted-foreground mt-2">M. Schmidt, A. Weber, K. Fischer</p>
+              <p className="metric-value text-score-amber">{bottomCards.flightRiskCount}</p>
+              <p className="text-xs text-muted-foreground mt-2">{bottomCards.flightRiskNames || 'No high-risk employees'}</p>
             </div>
           </div>
         </>

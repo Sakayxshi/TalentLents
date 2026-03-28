@@ -1,44 +1,80 @@
 import { useState, useMemo } from 'react';
 import { useStore } from '@/store/useStore';
 import { PageHeader, MetricCard, Badge } from '@/components/ui/MetricCard';
-import { computeCompositeScore, getScoreColor, getAppraisalVariant, getRiskVariant } from '@/lib/scoring';
+import { calculateCompositeScore, getScoreColor, getAppraisalVariant, getRiskVariant } from '@/lib/scoring';
 import { Plus, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { EmployeePanel } from '@/components/EmployeePanel';
+import { useToast } from '@/hooks/use-toast';
 
 export default function WorkforcePage() {
-  const { employees, roster, addToRoster, removeFromRoster, markPageComplete } = useStore();
+  const { employees, roster, addToRoster, removeFromRoster, markPageComplete, scenarios, selectedScenarioId } = useStore();
+  const { toast } = useToast();
   const [search, setSearch] = useState('');
   const [deptFilter, setDeptFilter] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
+  const [riskFilter, setRiskFilter] = useState('');
+  const [rankedMode, setRankedMode] = useState(false);
   const [page, setPage] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [sortCol, setSortCol] = useState<string>('score');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const perPage = 25;
+
+  const scenario = scenarios.find(s => s.id === selectedScenarioId);
+  const allReqSkills = useMemo(() => scenario?.roles.flatMap(r => r.requiredSkills) || [], [scenario]);
+  const allReqCerts = useMemo(() => scenario?.roles.flatMap(r => r.requiredCerts) || [], [scenario]);
 
   const departments = useMemo(() => [...new Set(employees.map(e => e.department))].filter(Boolean).sort(), [employees]);
   const roles = useMemo(() => [...new Set(employees.map(e => e.role))].filter(Boolean).sort(), [employees]);
 
   const scored = useMemo(() =>
-    employees.map(e => ({ ...e, compositeScore: computeCompositeScore(e) }))
-      .sort((a, b) => b.compositeScore - a.compositeScore),
-    [employees]
+    employees.map(e => {
+      const scoreData = calculateCompositeScore(e, allReqSkills, allReqCerts, scenario?.risk === 'Low' ? 'High' : 'Critical');
+      return { ...e, compositeScore: scoreData.total, scoreData, skillMatchPct: scoreData.skillMatchPct };
+    }).sort((a, b) => b.compositeScore - a.compositeScore),
+    [employees, allReqSkills, allReqCerts, scenario]
   );
 
   const filtered = useMemo(() => {
     let result = scored;
+    if (rankedMode && allReqSkills.length > 0) {
+      result = result.filter(e => e.skillMatchPct > 0);
+    }
     if (deptFilter) result = result.filter(e => e.department === deptFilter);
     if (roleFilter) result = result.filter(e => e.role === roleFilter);
+    if (riskFilter) result = result.filter(e => e.flight_risk?.toLowerCase() === riskFilter.toLowerCase());
     if (search) {
       const s = search.toLowerCase();
-      result = result.filter(e => e.name.toLowerCase().includes(s) || e.technical_skills?.toLowerCase().includes(s));
+      result = result.filter(e => e.name.toLowerCase().includes(s) || e.technical_skills?.toLowerCase().includes(s) || e.certifications?.toLowerCase().includes(s));
     }
+    // Sort
+    result = [...result].sort((a, b) => {
+      let valA: number | string, valB: number | string;
+      switch (sortCol) {
+        case 'name': valA = a.name; valB = b.name; break;
+        case 'dept': valA = a.department; valB = b.department; break;
+        case 'role': valA = a.role; valB = b.role; break;
+        case 'perf': valA = a.performance_rating; valB = b.performance_rating; break;
+        case 'risk': valA = a.flight_risk; valB = b.flight_risk; break;
+        default: valA = a.compositeScore; valB = b.compositeScore;
+      }
+      if (typeof valA === 'string') return sortDir === 'asc' ? valA.localeCompare(valB as string) : (valB as string).localeCompare(valA);
+      return sortDir === 'asc' ? (valA as number) - (valB as number) : (valB as number) - (valA as number);
+    });
     return result;
-  }, [scored, deptFilter, roleFilter, search]);
+  }, [scored, deptFilter, roleFilter, riskFilter, search, rankedMode, allReqSkills, sortCol, sortDir]);
 
   const totalPages = Math.ceil(filtered.length / perPage);
   const pageData = filtered.slice(page * perPage, (page + 1) * perPage);
   const selected = selectedId ? scored.find(e => e.employee_id === selectedId) : null;
   const matchedCount = scored.filter(e => e.compositeScore >= 50).length;
+
+  const handleSort = (col: string) => {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortCol(col); setSortDir('desc'); }
+  };
 
   if (employees.length === 0) {
     return (
@@ -72,9 +108,22 @@ export default function WorkforcePage() {
           <option value="">All Roles</option>
           {roles.map(r => <option key={r} value={r}>{r}</option>)}
         </select>
-        <Input placeholder="Search skills or names..." value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} className="w-64" />
-        <Button variant="ghost" size="sm" onClick={() => { setDeptFilter(''); setRoleFilter(''); setSearch(''); setPage(0); }}>Reset</Button>
-        <span className="ml-auto text-xs text-muted-foreground">{filtered.length} results</span>
+        <div className="flex gap-1">
+          {['', 'Low', 'Medium', 'High'].map(r => (
+            <button key={r} onClick={() => { setRiskFilter(r); setPage(0); }} className={`px-2.5 py-1 text-xs rounded-md transition-colors ${riskFilter === r ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'}`}>
+              {r || 'All Risk'}
+            </button>
+          ))}
+        </div>
+        <Input placeholder="Search skills, names, certs..." value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} className="w-64" />
+        <Button variant="ghost" size="sm" onClick={() => { setDeptFilter(''); setRoleFilter(''); setRiskFilter(''); setSearch(''); setPage(0); }}>Reset</Button>
+        <div className="ml-auto flex items-center gap-2">
+          <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+            <input type="checkbox" checked={rankedMode} onChange={e => setRankedMode(e.target.checked)} className="accent-primary" />
+            Ranked for Project
+          </label>
+          <span className="text-xs text-muted-foreground">{filtered.length} results</span>
+        </div>
       </div>
 
       <div className="flex gap-4">
@@ -85,19 +134,22 @@ export default function WorkforcePage() {
               <thead>
                 <tr className="border-b border-border">
                   <th className="text-left p-3 text-xs text-muted-foreground font-medium">#</th>
-                  <th className="text-left p-3 text-xs text-muted-foreground font-medium">Name</th>
-                  <th className="text-left p-3 text-xs text-muted-foreground font-medium">Department</th>
-                  <th className="text-left p-3 text-xs text-muted-foreground font-medium">Role</th>
-                  <th className="text-left p-3 text-xs text-muted-foreground font-medium">Score</th>
-                  <th className="text-left p-3 text-xs text-muted-foreground font-medium">Perf.</th>
+                  <th className="text-left p-3 text-xs text-muted-foreground font-medium cursor-pointer hover:text-foreground" onClick={() => handleSort('name')}>Name {sortCol === 'name' && (sortDir === 'asc' ? '↑' : '↓')}</th>
+                  <th className="text-left p-3 text-xs text-muted-foreground font-medium cursor-pointer hover:text-foreground" onClick={() => handleSort('dept')}>Department</th>
+                  <th className="text-left p-3 text-xs text-muted-foreground font-medium cursor-pointer hover:text-foreground" onClick={() => handleSort('role')}>Role</th>
+                  <th className="text-left p-3 text-xs text-muted-foreground font-medium cursor-pointer hover:text-foreground" onClick={() => handleSort('score')}>Score {sortCol === 'score' && (sortDir === 'asc' ? '↑' : '↓')}</th>
+                  <th className="text-left p-3 text-xs text-muted-foreground font-medium cursor-pointer hover:text-foreground" onClick={() => handleSort('perf')}>Perf.</th>
                   <th className="text-left p-3 text-xs text-muted-foreground font-medium">Appraisal</th>
-                  <th className="text-left p-3 text-xs text-muted-foreground font-medium">Risk</th>
+                  <th className="text-left p-3 text-xs text-muted-foreground font-medium">Products</th>
+                  <th className="text-left p-3 text-xs text-muted-foreground font-medium">Success%</th>
+                  <th className="text-left p-3 text-xs text-muted-foreground font-medium cursor-pointer hover:text-foreground" onClick={() => handleSort('risk')}>Risk</th>
                   <th className="p-3"></th>
                 </tr>
               </thead>
               <tbody>
                 {pageData.map((e, i) => {
                   const isRostered = roster.includes(e.employee_id);
+                  const successRate = e.products_deployed > 0 ? Math.round((e.successful_products_deployed / e.products_deployed) * 100) : 0;
                   return (
                     <tr
                       key={e.employee_id}
@@ -110,13 +162,26 @@ export default function WorkforcePage() {
                       <td className="p-3 text-foreground font-medium">{e.name}</td>
                       <td className="p-3 text-muted-foreground">{e.department}</td>
                       <td className="p-3 text-muted-foreground">{e.role}</td>
-                      <td className="p-3"><span className={`font-bold ${getScoreColor(e.compositeScore)}`}>{e.compositeScore}</span></td>
+                      <td className="p-3">
+                        <div className="flex items-center gap-2">
+                          <span className={`font-bold ${getScoreColor(e.compositeScore)}`}>{e.compositeScore}</span>
+                          <div className="w-12 h-1.5 bg-secondary rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full ${e.compositeScore >= 80 ? 'bg-success' : e.compositeScore >= 60 ? 'bg-warning' : 'bg-destructive'}`} style={{ width: `${e.compositeScore}%` }} />
+                          </div>
+                        </div>
+                      </td>
                       <td className="p-3 text-muted-foreground">{e.performance_rating}/5</td>
                       <td className="p-3"><Badge variant={getAppraisalVariant(e.appraisal)}>{e.appraisal}</Badge></td>
+                      <td className="p-3 text-muted-foreground">{e.products_deployed}</td>
+                      <td className="p-3 text-muted-foreground">{successRate}%</td>
                       <td className="p-3"><Badge variant={getRiskVariant(e.flight_risk)}>{e.flight_risk}</Badge></td>
                       <td className="p-3">
                         <button
-                          onClick={(ev) => { ev.stopPropagation(); isRostered ? removeFromRoster(e.employee_id) : addToRoster(e.employee_id); }}
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            if (isRostered) { removeFromRoster(e.employee_id); toast({ title: 'Removed', description: `${e.name} removed from roster` }); }
+                            else { addToRoster(e.employee_id); toast({ title: 'Added', description: `${e.name} added to roster` }); }
+                          }}
                           className={`p-1 rounded transition-colors ${isRostered ? 'text-destructive hover:bg-destructive/10' : 'text-primary hover:bg-primary/10'}`}
                         >
                           {isRostered ? <X size={16} /> : <Plus size={16} />}
@@ -139,70 +204,15 @@ export default function WorkforcePage() {
 
         {/* Detail Panel */}
         {selected && (
-          <div className="w-[400px] shrink-0 card-surface p-5 overflow-y-auto max-h-[calc(100vh-140px)] animate-fade-in-up">
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <h2 className="text-xl font-bold text-foreground">{selected.name}</h2>
-                <p className="text-sm text-muted-foreground">{selected.role} · {selected.department}</p>
-                <p className="text-xs text-muted-foreground mt-1">{selected.location} · {selected.years_at_company} years</p>
-              </div>
-              <button onClick={() => setSelectedId(null)} className="text-muted-foreground hover:text-foreground"><X size={18} /></button>
-            </div>
-
-            <div className="text-center my-4">
-              <p className={`text-4xl font-bold ${getScoreColor(selected.compositeScore)}`}>{selected.compositeScore}</p>
-              <p className="text-xs text-muted-foreground mt-1">Composite Score</p>
-            </div>
-
-            <div className="space-y-3 text-sm mb-4">
-              <div className="flex justify-between"><span className="text-muted-foreground">Performance</span><span>{selected.performance_rating}/5</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Products Deployed</span><span>{selected.products_deployed}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Success Rate</span><span>{selected.products_deployed > 0 ? Math.round((selected.successful_products_deployed / selected.products_deployed) * 100) : 0}%</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Peer Feedback</span><span>{selected.peer_feedback_score}/5</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Appraisal</span><Badge variant={getAppraisalVariant(selected.appraisal)}>{selected.appraisal}</Badge></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Flight Risk</span><Badge variant={getRiskVariant(selected.flight_risk)}>{selected.flight_risk}</Badge></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Salary Band</span><span>{selected.salary_band}</span></div>
-            </div>
-
-            {selected.technical_skills && (
-              <div className="mb-4">
-                <p className="text-xs text-muted-foreground mb-2 uppercase tracking-wider">Skills</p>
-                <div className="flex flex-wrap gap-1">
-                  {selected.technical_skills.split(',').map(s => (
-                    <span key={s.trim()} className="px-2 py-0.5 text-xs rounded-md bg-secondary text-secondary-foreground">{s.trim()}</span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {selected.certifications && (
-              <div className="mb-4">
-                <p className="text-xs text-muted-foreground mb-2 uppercase tracking-wider">Certifications</p>
-                <div className="flex flex-wrap gap-1">
-                  {selected.certifications.split(',').map(c => (
-                    <span key={c.trim()} className="px-2 py-0.5 text-xs rounded-md badge-blue">{c.trim()}</span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="text-xs text-muted-foreground space-y-1 mb-4">
-              <p><strong>Education:</strong> {selected.education}</p>
-              <p><strong>Languages:</strong> {selected.languages}</p>
-              <p><strong>Current Project:</strong> {selected.current_project}</p>
-            </div>
-
-            <Button
-              className="w-full"
-              variant={roster.includes(selected.employee_id) ? 'destructive' : 'default'}
-              onClick={() => {
-                roster.includes(selected.employee_id) ? removeFromRoster(selected.employee_id) : addToRoster(selected.employee_id);
-                markPageComplete(3);
-              }}
-            >
-              {roster.includes(selected.employee_id) ? 'Remove from Roster' : 'Add to Roster'}
-            </Button>
-          </div>
+          <EmployeePanel
+            employee={selected}
+            scoreData={selected.scoreData}
+            requiredSkills={allReqSkills}
+            isRostered={roster.includes(selected.employee_id)}
+            onAddToRoster={() => { addToRoster(selected.employee_id); markPageComplete(3); toast({ title: 'Added to Roster', description: selected.name }); }}
+            onRemoveFromRoster={() => { removeFromRoster(selected.employee_id); toast({ title: 'Removed', description: selected.name }); }}
+            onClose={() => setSelectedId(null)}
+          />
         )}
       </div>
     </div>
