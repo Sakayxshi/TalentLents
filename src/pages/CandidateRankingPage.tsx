@@ -3,24 +3,25 @@ import { useStore, ExternalCandidate } from '@/store/useStore';
 import { PageHeader, MetricCard, Badge } from '@/components/ui/MetricCard';
 import { Button } from '@/components/ui/button';
 import { getScoreColor, calculateCompositeScore, getSkillOverlap } from '@/lib/scoring';
-import { Star, X, GitCompare } from 'lucide-react';
+import { Star, X, GitCompare, Sparkles, Brain } from 'lucide-react';
 import { generateExternalCandidates } from '@/lib/demoData';
 import { useToast } from '@/hooks/use-toast';
+import { invokeAI, CandidateEvaluations } from '@/lib/aiService';
 
 type SortMode = 'best' | 'fast' | 'cost' | 'long';
 
 export default function CandidateRankingPage() {
-  const { shortlistedCandidates, shortlistCandidate, unshortlistCandidate, externalCandidates, setExternalCandidates, scenarios, selectedScenarioId, markPageComplete } = useStore();
+  const { shortlistedCandidates, shortlistCandidate, unshortlistCandidate, externalCandidates, setExternalCandidates, scenarios, selectedScenarioId, markPageComplete, projectConfig } = useStore();
   const { toast } = useToast();
+  const [aiEvals, setAiEvals] = useState<CandidateEvaluations | null>(null);
+  const [loadingAi, setLoadingAi] = useState(false);
 
   const scenario = scenarios.find(s => s.id === selectedScenarioId);
   const positions = useMemo(() => scenario?.roles.filter(r => r.gap > 0).map(r => r.role) || [], [scenario]);
 
-  // Generate candidates if none exist
   useEffect(() => {
     if (externalCandidates.length === 0 && positions.length > 0) {
       const candidates = generateExternalCandidates(positions);
-      // Score each candidate
       const scored = candidates.map(c => {
         const role = scenario?.roles.find(r => r.role === c.targetRole);
         const candidateSkills = (c.technical_skills || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
@@ -43,7 +44,6 @@ export default function CandidateRankingPage() {
   const [sortMode, setSortMode] = useState<SortMode>('best');
   const [compareIds, setCompareIds] = useState<string[]>([]);
 
-  // Default to first position
   useEffect(() => {
     if (positions.length > 0 && !selectedPosition) setSelectedPosition(positions[0]);
   }, [positions, selectedPosition]);
@@ -58,11 +58,45 @@ export default function CandidateRankingPage() {
     }
   }, [externalCandidates, selectedPosition, sortMode]);
 
+  const handleAiAnalyze = async () => {
+    if (!selectedPosition || candidates.length === 0) return;
+    setLoadingAi(true);
+    try {
+      const role = scenario?.roles.find(r => r.role === selectedPosition);
+      const result = await invokeAI<CandidateEvaluations>('analyze-candidates', {
+        candidates: candidates.slice(0, 8).map(c => ({
+          candidateId: c.id,
+          name: c.name,
+          currentRole: c.current_role,
+          company: c.current_company,
+          yearsExp: c.years_experience,
+          skills: c.technical_skills,
+          score: c.composite_score || 0,
+          salary: c.salary_expectation,
+        })),
+        targetRole: selectedPosition,
+        requiredSkills: role?.requiredSkills || [],
+        projectContext: projectConfig?.name || 'Strategic Initiative',
+      });
+      setAiEvals(result);
+      toast({ title: 'AI Analysis Complete', description: `${result.evaluations.length} candidates evaluated` });
+    } catch (err) {
+      console.error('Candidate analysis failed:', err);
+      toast({ title: 'Analysis Failed', description: err instanceof Error ? err.message : 'Please try again', variant: 'destructive' });
+    } finally {
+      setLoadingAi(false);
+    }
+  };
+
   const toggleCompare = (id: string) => {
     setCompareIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : prev.length < 3 ? [...prev, id] : prev);
   };
 
   const compareData = externalCandidates.filter(c => compareIds.includes(c.id));
+  const getEval = (id: string) => aiEvals?.evaluations.find(e => e.candidateId === id);
+
+  const fitColors: Record<string, string> = { 'Strong Fit': 'badge-green', 'Good Fit': 'badge-blue', 'Moderate Fit': 'badge-amber', 'Weak Fit': 'badge-red' };
+  const recColors: Record<string, string> = { 'Hire': 'badge-green', 'Interview': 'badge-blue', 'Waitlist': 'badge-amber', 'Pass': 'badge-red' };
 
   if (!scenario) {
     return (
@@ -76,9 +110,14 @@ export default function CandidateRankingPage() {
   return (
     <div>
       <PageHeader title="Candidate Ranking" subtitle="Evaluate and compare external candidates">
-        <Button variant="outline" size="sm" onClick={() => setCompareIds([])} disabled={compareIds.length === 0}>
-          <GitCompare size={14} className="mr-2" />Compare ({compareIds.length})
-        </Button>
+        <div className="flex gap-2">
+          <Button size="sm" onClick={handleAiAnalyze} disabled={loadingAi || candidates.length === 0}>
+            <Sparkles size={14} className="mr-2" />{loadingAi ? 'Analyzing...' : aiEvals ? 'Re-Analyze' : 'AI Evaluate Candidates'}
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setCompareIds([])} disabled={compareIds.length === 0}>
+            <GitCompare size={14} className="mr-2" />Compare ({compareIds.length})
+          </Button>
+        </div>
       </PageHeader>
 
       <div className="grid grid-cols-4 gap-4 mb-6">
@@ -88,14 +127,25 @@ export default function CandidateRankingPage() {
         <MetricCard label="Positions" value={positions.length} />
       </div>
 
+      {/* AI Hiring Strategy */}
+      {aiEvals && (
+        <div className="card-surface p-5 mb-6 animate-fade-in-up">
+          <div className="flex items-center gap-2 mb-3">
+            <Brain size={18} className="text-primary" />
+            <h3 className="font-semibold text-foreground">AI Hiring Strategy</h3>
+            {aiEvals.topPick && <Badge variant="badge-green">Top Pick: {aiEvals.topPick}</Badge>}
+          </div>
+          <p className="text-sm text-muted-foreground leading-relaxed">{aiEvals.hiringStrategy}</p>
+        </div>
+      )}
+
       <div className="flex gap-4">
-        {/* Left */}
         <div className="w-[35%] shrink-0 space-y-2">
           {positions.map(p => {
             const count = externalCandidates.filter(c => c.targetRole === p).length;
             const topScore = externalCandidates.filter(c => c.targetRole === p).reduce((max, c) => Math.max(max, c.composite_score || 0), 0);
             return (
-              <button key={p} onClick={() => setSelectedPosition(p)} className={`w-full text-left card-surface p-4 transition-all ${selectedPosition === p ? 'ring-2 ring-primary' : ''}`}>
+              <button key={p} onClick={() => { setSelectedPosition(p); setAiEvals(null); }} className={`w-full text-left card-surface p-4 transition-all ${selectedPosition === p ? 'ring-2 ring-primary' : ''}`}>
                 <h4 className="font-medium text-foreground text-sm">{p}</h4>
                 <div className="flex justify-between text-xs text-muted-foreground mt-1">
                   <span>{count} applicants</span>
@@ -106,7 +156,6 @@ export default function CandidateRankingPage() {
           })}
         </div>
 
-        {/* Right */}
         <div className="flex-1 space-y-3">
           <div className="flex gap-2 mb-4">
             {([['best','Best Fit'],['fast','Fastest Onboard'],['cost','Lowest Cost'],['long','Long-term']] as [SortMode, string][]).map(([mode, label]) => (
@@ -118,6 +167,7 @@ export default function CandidateRankingPage() {
             const isShortlisted = shortlistedCandidates.includes(c.id);
             const candidateSkills = (c.technical_skills || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
             const certs = (c.certifications || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
+            const evalData = getEval(c.id);
             return (
               <div key={c.id} className="card-surface p-4 animate-fade-in-up">
                 <div className="flex items-start gap-4">
@@ -128,7 +178,11 @@ export default function CandidateRankingPage() {
                   <div className="flex-1">
                     <div className="flex justify-between">
                       <div>
-                        <h4 className="font-semibold text-foreground">{c.name}</h4>
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-semibold text-foreground">{c.name}</h4>
+                          {evalData && <Badge variant={fitColors[evalData.fitLevel]}>{evalData.fitLevel}</Badge>}
+                          {evalData && <Badge variant={recColors[evalData.recommendation]}>{evalData.recommendation}</Badge>}
+                        </div>
                         <p className="text-xs text-muted-foreground">{c.current_company} · {c.current_role} · {c.years_experience} yrs</p>
                       </div>
                       <div className="text-right text-xs text-muted-foreground">
@@ -136,7 +190,6 @@ export default function CandidateRankingPage() {
                         <p>{c.notice_period_weeks === 0 ? 'Immediate' : `${c.notice_period_weeks}w notice`}</p>
                       </div>
                     </div>
-                    {/* Skill match bar */}
                     <div className="mt-2 mb-1">
                       <div className="flex justify-between text-[10px] text-muted-foreground">
                         <span>Skill Match</span><span>{c.skill_match || 0}%</span>
@@ -145,6 +198,21 @@ export default function CandidateRankingPage() {
                         <div className={`h-full rounded-full ${(c.skill_match || 0) >= 70 ? 'bg-success' : 'bg-warning'}`} style={{ width: `${c.skill_match || 0}%` }} />
                       </div>
                     </div>
+                    {/* AI insights */}
+                    {evalData && (
+                      <div className="mt-2 p-2 rounded bg-primary/5 border border-primary/10 text-xs">
+                        <div className="flex gap-4">
+                          <div className="flex-1">
+                            <p className="text-[10px] uppercase tracking-wider text-success font-medium mb-1">Strengths</p>
+                            {evalData.strengths.map((s, i) => <p key={i} className="text-muted-foreground">• {s}</p>)}
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-[10px] uppercase tracking-wider text-destructive font-medium mb-1">Concerns</p>
+                            {evalData.concerns.map((s, i) => <p key={i} className="text-muted-foreground">• {s}</p>)}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                     <div className="flex flex-wrap gap-1 mt-2">
                       {candidateSkills.slice(0, 5).map(s => <span key={s} className="px-2 py-0.5 text-xs rounded badge-green">{s}</span>)}
                       {certs.slice(0, 2).map(cert => <span key={cert} className="px-2 py-0.5 text-xs rounded badge-blue">{cert}</span>)}
@@ -171,7 +239,6 @@ export default function CandidateRankingPage() {
         </div>
       </div>
 
-      {/* Compare panel */}
       {compareData.length >= 2 && (
         <div className="card-surface p-5 mt-6 animate-fade-in-up">
           <h3 className="font-semibold text-foreground mb-4">Comparison</h3>
