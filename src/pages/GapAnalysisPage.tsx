@@ -2,10 +2,33 @@ import { useMemo, useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { PageHeader, MetricCard, Badge } from '@/components/ui/MetricCard';
 import { calculateCompositeScore, getSkillOverlap, getMissingSkills, getMatchedSkills, GAP_THRESHOLDS } from '@/lib/scoring';
-import { ChevronDown, ChevronUp, Plus, Sparkles, Brain, Target } from 'lucide-react';
+import { ChevronDown, ChevronUp, Plus, Sparkles, Brain, Target, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { invokeAI, GapStrategy } from '@/lib/aiService';
+import { buildTrainingPath } from '@/lib/bmw-training-catalogue';
+
+const HIRING_COST = 85_000; // EUR — cost of one external hire
+const TRAINING_COST_THRESHOLD = 0.70; // training must be < 70% of hiring cost
+const CRITICAL_POSITIONS = ['Lead', 'Core Contributor'];
+
+interface UpskillCandidate {
+  employee_id: string;
+  name: string;
+  role: string;
+  overlapPct: number;
+  matchedSkills: string[];
+  missingSkills: string[];
+  score: number;
+  flight_risk: string;
+  project_position: string;
+  technical_skills: string;
+  // Decision tree results
+  trainingCost: number;
+  trainingWeeks: number;
+  canUpskill: boolean;
+  blockedReasons: string[];
+}
 
 export default function GapAnalysisPage() {
   const { employees, scenarios, selectedScenarioId, roster, addToRoster, addUpskillCandidate, markPageComplete, projectConfig } = useStore();
@@ -17,6 +40,14 @@ export default function GapAnalysisPage() {
   const scenario = scenarios.find(s => s.id === selectedScenarioId);
   const roles = scenario?.roles || [];
 
+  // Weeks until project deadline
+  const weeksUntilDeadline = useMemo(() => {
+    if (!projectConfig?.targetDeadline) return 52;
+    const deadline = new Date(projectConfig.targetDeadline);
+    const now = new Date();
+    return Math.max(0, Math.round((deadline.getTime() - now.getTime()) / (7 * 24 * 60 * 60 * 1000)));
+  }, [projectConfig]);
+
   const analysis = useMemo(() => {
     return roles.map(r => {
       const rostered = employees.filter(e => {
@@ -26,7 +57,6 @@ export default function GapAnalysisPage() {
         return overlap >= GAP_THRESHOLDS.INTERNAL_READY;
       });
 
-      // Employees not on roster — split by 80%/60% thresholds
       const notRostered = employees.filter(e => !roster.includes(e.employee_id));
       const scoredPool = notRostered.map(e => {
         const empSkills = (e.technical_skills || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
@@ -37,53 +67,95 @@ export default function GapAnalysisPage() {
         return { ...e, overlap, overlapPct: Math.round(overlap * 100), missingSkills: missing, matchedSkills: matched, score: score.total };
       });
 
-      // ≥80% → internal ready (can fill directly)
+      // ≥80% → Internal Ready (assign directly)
       const internalReady = scoredPool
         .filter(e => e.overlap >= GAP_THRESHOLDS.INTERNAL_READY)
         .sort((a, b) => b.score - a.score)
         .slice(0, 5);
 
-      // 60–79% → upskillable (need training)
-      const upskillable = scoredPool
+      // 60–79% → check 4 upskilling conditions
+      const upskillCandidates: UpskillCandidate[] = scoredPool
         .filter(e => e.overlap >= GAP_THRESHOLDS.UPSKILLABLE && e.overlap < GAP_THRESHOLDS.INTERNAL_READY)
         .sort((a, b) => b.overlap - a.overlap)
-        .slice(0, 5);
+        .slice(0, 5)
+        .map(e => {
+          const { totalCost, totalWeeks } = buildTrainingPath(e.missingSkills);
+
+          const blockedReasons: string[] = [];
+
+          // Condition 1: training cost < 70% of hiring cost
+          if (totalCost >= HIRING_COST * TRAINING_COST_THRESHOLD) {
+            blockedReasons.push(`Training cost €${totalCost.toLocaleString()} ≥ 70% of hire cost`);
+          }
+
+          // Condition 2: training fits within deadline
+          if (totalWeeks > weeksUntilDeadline) {
+            blockedReasons.push(`${totalWeeks}w training exceeds ${weeksUntilDeadline}w deadline`);
+          }
+
+          // Condition 3: flight risk not high
+          if (e.flight_risk?.toLowerCase() === 'high') {
+            blockedReasons.push('High flight risk');
+          }
+
+          // Condition 4: not on critical project
+          if (CRITICAL_POSITIONS.includes(e.project_position)) {
+            blockedReasons.push(`Critical project role: ${e.project_position}`);
+          }
+
+          return {
+            ...e,
+            trainingCost: totalCost,
+            trainingWeeks: totalWeeks,
+            canUpskill: blockedReasons.length === 0,
+            blockedReasons,
+          };
+        });
+
+      const trainable = upskillCandidates.filter(e => e.canUpskill);
+      const blocked = upskillCandidates.filter(e => !e.canUpskill);
 
       const filled = rostered.length;
       const gap = Math.max(0, r.headcount - filled);
       const canFillInternal = Math.min(internalReady.length, gap);
-      const canFillUpskill = Math.min(upskillable.length, Math.max(0, gap - canFillInternal));
-      const externalNeeded = Math.max(0, gap - canFillInternal - canFillUpskill);
+      const canFillTraining = Math.min(trainable.length, Math.max(0, gap - canFillInternal));
+      const externalNeeded = Math.max(0, gap - canFillInternal - canFillTraining);
 
       const rosteredCerts = rostered.flatMap(e => (e.certifications || '').split(/[,;]/).map(c => c.trim().toLowerCase()));
       const missingCerts = r.requiredCerts.filter(c => !rosteredCerts.some(rc => rc.includes(c.toLowerCase())));
 
       const fillRate = (filled + canFillInternal) / Math.max(r.headcount, 1);
       const status = fillRate >= 1 ? 'staffed' : fillRate >= 0.5 ? 'partial' : 'critical';
-      const recommendation = externalNeeded === 0
-        ? (upskillable.length > 0 ? 'upskill' : 'internal')
-        : (canFillUpskill > 0 ? 'mixed' : 'hire_external');
+
+      let recommendation: string;
+      if (gap === 0) recommendation = 'internal';
+      else if (externalNeeded === 0 && canFillTraining > 0) recommendation = 'upskill';
+      else if (externalNeeded === 0) recommendation = 'internal';
+      else if (canFillTraining > 0) recommendation = 'mixed';
+      else recommendation = 'hire_external';
 
       return {
         ...r,
         filled,
         gap,
         rostered,
-        upskillable,
         internalReady,
+        upskillCandidates,
+        trainable,
+        blocked,
         canFillInternal,
-        canFillUpskill,
+        canFillTraining,
         externalNeeded,
         missingCerts,
         status,
         recommendation,
       };
     });
-  }, [roles, employees, roster]);
+  }, [roles, employees, roster, weeksUntilDeadline]);
 
   const fullyStaffed = analysis.filter(r => r.gap === 0).length;
-  const partial = analysis.filter(r => r.gap > 0 && r.filled > 0).length;
-  const critical = analysis.filter(r => r.gap > 0 && r.filled === 0).length;
+  const partial = analysis.filter(r => r.gap > 0 && (r.filled > 0 || r.trainable.length > 0)).length;
+  const critical = analysis.filter(r => r.gap > 0 && r.filled === 0 && r.trainable.length === 0 && r.internalReady.length === 0).length;
 
   const allMissingCerts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -99,7 +171,8 @@ export default function GapAnalysisPage() {
         projectName: projectConfig.name,
         roles: analysis.map(r => ({
           role: r.role, headcount: r.headcount, filled: r.filled, gap: r.gap,
-          upskillable: r.upskillable.length, externalNeeded: r.externalNeeded,
+          trainable: r.trainable.length, blocked: r.blocked.length,
+          externalNeeded: r.externalNeeded, recommendation: r.recommendation,
           missingSkills: r.requiredSkills.slice(0, 5), missingCerts: r.missingCerts,
         })),
         missingCerts: allMissingCerts.map(([cert, count]) => ({ cert, count })),
@@ -245,24 +318,54 @@ export default function GapAnalysisPage() {
                     </div>
                   </div>
                 )}
-                {r.upskillable.length > 0 && (
+                {r.trainable.length > 0 && (
                   <div>
                     <h5 className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
-                      Upskill Candidates <span className="text-warning">(60–79% match)</span>
+                      🎓 Training @ BMW <span className="text-warning">(60–79% · all 4 conditions met)</span>
                     </h5>
                     <div className="space-y-2">
-                      {r.upskillable.map(e => (
-                        <div key={e.employee_id} className="flex items-center justify-between text-sm px-2 py-2 rounded bg-secondary/50">
+                      {r.trainable.map(e => (
+                        <div key={e.employee_id} className="flex items-center justify-between text-sm px-2 py-2 rounded bg-warning/5 border border-warning/20">
                           <div className="flex-1">
-                            <span className="text-foreground font-medium">{e.name}</span><span className="text-muted-foreground ml-2 text-xs">({e.role})</span>
+                            <span className="text-foreground font-medium">{e.name}</span>
+                            <span className="text-muted-foreground ml-2 text-xs">({e.role})</span>
                             <div className="flex flex-wrap gap-1 mt-1">
                               {e.matchedSkills.map(s => <span key={s} className="px-1.5 py-0 text-[10px] rounded badge-green">{s}</span>)}
-                              {e.missingSkills.map(s => <span key={s} className="px-1.5 py-0 text-[10px] rounded badge-red">{s}</span>)}
+                              {e.missingSkills.map(s => <span key={s} className="px-1.5 py-0 text-[10px] rounded badge-amber">{s}</span>)}
+                            </div>
+                            <div className="flex gap-3 mt-1 text-[10px] text-muted-foreground">
+                              <span>Training: {e.trainingWeeks}w</span>
+                              <span>Cost: €{e.trainingCost.toLocaleString()}</span>
+                              <span className="text-success">vs €{HIRING_COST.toLocaleString()} hire</span>
                             </div>
                           </div>
                           <div className="flex items-center gap-3">
-                            <span className="text-xs text-muted-foreground">{e.overlapPct}% match</span>
-                            <button onClick={() => { addToRoster(e.employee_id); addUpskillCandidate({ employeeId: e.employee_id, targetRole: r.role, approved: false }); markPageComplete(4); toast({ title: 'Added', description: `${e.name} added to roster & upskill queue` }); }} className="text-primary hover:bg-primary/10 p-1 rounded"><Plus size={14} /></button>
+                            <span className="text-xs text-warning font-medium">{e.overlapPct}%</span>
+                            <button onClick={() => { addToRoster(e.employee_id); addUpskillCandidate({ employeeId: e.employee_id, targetRole: r.role, approved: false }); markPageComplete(4); toast({ title: 'Added to Training Queue', description: `${e.name} → Upskilling page` }); }} className="text-primary hover:bg-primary/10 p-1 rounded"><Plus size={14} /></button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {r.blocked.length > 0 && (
+                  <div>
+                    <h5 className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
+                      💼 → Job Posting <span className="text-destructive">(60–79% · blocked from training)</span>
+                    </h5>
+                    <div className="space-y-2">
+                      {r.blocked.map(e => (
+                        <div key={e.employee_id} className="flex items-center justify-between text-sm px-2 py-2 rounded bg-destructive/5 border border-destructive/20">
+                          <div className="flex-1">
+                            <span className="text-foreground font-medium">{e.name}</span>
+                            <span className="text-muted-foreground ml-2 text-xs">({e.role}) · {e.overlapPct}% match</span>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {e.blockedReasons.map(reason => (
+                                <span key={reason} className="flex items-center gap-1 px-1.5 py-0 text-[10px] rounded badge-red">
+                                  <AlertTriangle size={8} />{reason}
+                                </span>
+                              ))}
+                            </div>
                           </div>
                         </div>
                       ))}
