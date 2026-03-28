@@ -32,13 +32,10 @@ export function PageHeader({ title, subtitle, children }: { title: string; subti
   );
 }
 
-export const Badge = forwardRef<HTMLSpanElement, { children: ReactNode; variant?: string }>(
-  ({ children, variant = 'badge-blue' }, ref) => {
-    return (
-      <span ref={ref} className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${variant}`}>
-        {children}
-      </span>
-    );
-  }
-);
-Badge.displayName = 'Badge';
+export function Badge({ children, variant = 'badge-blue' }: { children: ReactNode; variant?: string }) {
+  return (
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${variant}`}>
+      {children}
+    </span>
+  );
+}
