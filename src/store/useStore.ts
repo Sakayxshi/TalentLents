@@ -25,6 +25,8 @@ export interface Employee {
   current_project: string;
   project_position: string;
   peer_feedback_score: number;
+  composite_score?: number;
+  skill_match_pct?: number;
 }
 
 export interface RoleRequirement {
@@ -32,6 +34,8 @@ export interface RoleRequirement {
   headcount: number;
   internalAvailable: number;
   gap: number;
+  requiredSkills: string[];
+  requiredCerts: string[];
 }
 
 export interface Scenario {
@@ -45,6 +49,7 @@ export interface Scenario {
   roles: RoleRequirement[];
   pros: string[];
   cons: string[];
+  rationale: string;
 }
 
 export interface ProjectConfig {
@@ -60,60 +65,94 @@ export interface ProjectConfig {
 export interface ExternalCandidate {
   id: string;
   name: string;
-  company: string;
-  role: string;
+  current_company: string;
+  current_role: string;
   targetRole: string;
-  skills: string[];
-  certifications: string[];
-  yearsExperience: number;
-  salaryExpectation: number;
-  noticePeriod: string;
-  compositeScore: number;
-  skillMatch: number;
+  years_experience: number;
   education: string;
+  technical_skills: string;
+  certifications: string;
+  languages: string;
+  salary_expectation: number;
+  notice_period_weeks: number;
+  portfolio_summary: string;
+  composite_score?: number;
+  skill_match?: number;
   location: string;
+}
+
+export interface UpskillCandidate {
+  employeeId: string;
+  targetRole: string;
+  approved: boolean;
+  trainingPath?: TrainingStep[];
+  totalCost?: number;
+  totalWeeks?: number;
+}
+
+export interface TrainingStep {
+  course: string;
+  duration: string;
+  cost: number;
+  method: 'Online' | 'In-person' | 'Hybrid';
+  coversSkills: string[];
+}
+
+export interface JobPosting {
+  roleId: string;
+  role: string;
+  department: string;
+  location: string;
+  salaryBand: string;
+  status: 'Draft' | 'Ready' | 'Posted';
+  description: {
+    opening: string;
+    roleOverview: string;
+    requiredQualifications: string[];
+    preferredQualifications: string[];
+    bmwOffers: string;
+  } | null;
 }
 
 export type PageId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
 
 interface AppState {
-  // Navigation
   currentPage: PageId;
   completedPages: Set<PageId>;
   setCurrentPage: (page: PageId) => void;
   markPageComplete: (page: PageId) => void;
 
-  // Upload
   employees: Employee[];
   uploadStats: { total: number; departments: number; locations: number; skipped: number } | null;
   setEmployees: (employees: Employee[], stats: { total: number; departments: number; locations: number; skipped: number }) => void;
 
-  // Project
   projectConfig: ProjectConfig | null;
   setProjectConfig: (config: ProjectConfig) => void;
 
-  // Scenarios
   scenarios: Scenario[];
   selectedScenarioId: string | null;
   setScenarios: (scenarios: Scenario[]) => void;
   selectScenario: (id: string) => void;
 
-  // Roster
   roster: string[];
   addToRoster: (employeeId: string) => void;
   removeFromRoster: (employeeId: string) => void;
 
-  // Upskill
-  upskillCandidates: string[];
-  addUpskillCandidate: (employeeId: string) => void;
+  upskillCandidates: UpskillCandidate[];
+  addUpskillCandidate: (candidate: UpskillCandidate) => void;
+  approveUpskill: (employeeId: string) => void;
   removeUpskillCandidate: (employeeId: string) => void;
+  setUpskillTrainingPath: (employeeId: string, path: TrainingStep[], totalCost: number, totalWeeks: number) => void;
 
-  // External
   externalCandidates: ExternalCandidate[];
   shortlistedCandidates: string[];
   setExternalCandidates: (candidates: ExternalCandidate[]) => void;
   shortlistCandidate: (id: string) => void;
   unshortlistCandidate: (id: string) => void;
+
+  jobPostings: JobPosting[];
+  setJobPostings: (postings: JobPosting[]) => void;
+  updateJobPosting: (roleId: string, updates: Partial<JobPosting>) => void;
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -139,16 +178,46 @@ export const useStore = create<AppState>((set) => ({
   selectScenario: (id) => set({ selectedScenarioId: id }),
 
   roster: [],
-  addToRoster: (employeeId) => set((s) => ({ roster: [...s.roster, employeeId] })),
-  removeFromRoster: (employeeId) => set((s) => ({ roster: s.roster.filter(id => id !== employeeId) })),
+  addToRoster: (employeeId) => set((s) => ({
+    roster: s.roster.includes(employeeId) ? s.roster : [...s.roster, employeeId]
+  })),
+  removeFromRoster: (employeeId) => set((s) => ({
+    roster: s.roster.filter(id => id !== employeeId)
+  })),
 
   upskillCandidates: [],
-  addUpskillCandidate: (employeeId) => set((s) => ({ upskillCandidates: [...s.upskillCandidates, employeeId] })),
-  removeUpskillCandidate: (employeeId) => set((s) => ({ upskillCandidates: s.upskillCandidates.filter(id => id !== employeeId) })),
+  addUpskillCandidate: (candidate) => set((s) => ({
+    upskillCandidates: s.upskillCandidates.some(c => c.employeeId === candidate.employeeId)
+      ? s.upskillCandidates
+      : [...s.upskillCandidates, candidate]
+  })),
+  approveUpskill: (employeeId) => set((s) => ({
+    upskillCandidates: s.upskillCandidates.map(c =>
+      c.employeeId === employeeId ? { ...c, approved: true } : c
+    )
+  })),
+  removeUpskillCandidate: (employeeId) => set((s) => ({
+    upskillCandidates: s.upskillCandidates.filter(c => c.employeeId !== employeeId)
+  })),
+  setUpskillTrainingPath: (employeeId, path, totalCost, totalWeeks) => set((s) => ({
+    upskillCandidates: s.upskillCandidates.map(c =>
+      c.employeeId === employeeId ? { ...c, trainingPath: path, totalCost, totalWeeks } : c
+    )
+  })),
 
   externalCandidates: [],
   shortlistedCandidates: [],
   setExternalCandidates: (candidates) => set({ externalCandidates: candidates }),
-  shortlistCandidate: (id) => set((s) => ({ shortlistedCandidates: [...s.shortlistedCandidates, id] })),
-  unshortlistCandidate: (id) => set((s) => ({ shortlistedCandidates: s.shortlistedCandidates.filter(i => i !== id) })),
+  shortlistCandidate: (id) => set((s) => ({
+    shortlistedCandidates: s.shortlistedCandidates.includes(id) ? s.shortlistedCandidates : [...s.shortlistedCandidates, id]
+  })),
+  unshortlistCandidate: (id) => set((s) => ({
+    shortlistedCandidates: s.shortlistedCandidates.filter(i => i !== id)
+  })),
+
+  jobPostings: [],
+  setJobPostings: (postings) => set({ jobPostings: postings }),
+  updateJobPosting: (roleId, updates) => set((s) => ({
+    jobPostings: s.jobPostings.map(p => p.roleId === roleId ? { ...p, ...updates } : p)
+  })),
 }));
