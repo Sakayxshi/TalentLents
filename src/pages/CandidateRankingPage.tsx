@@ -3,8 +3,7 @@ import { useStore, ExternalCandidate } from '@/store/useStore';
 import { PageHeader, MetricCard, Badge } from '@/components/ui/MetricCard';
 import { Button } from '@/components/ui/button';
 import { getScoreColor, scoreExternalCandidate, RankingMode, SALARY_BAND_MIDPOINTS } from '@/lib/scoring';
-import { Star, X, GitCompare, Sparkles, Brain, Upload } from 'lucide-react';
-import { generateExternalCandidates } from '@/lib/demoData';
+import { Star, X, GitCompare, Sparkles, Brain, Upload, UserPlus } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { invokeAI, CandidateEvaluations } from '@/lib/aiService';
 import Papa from 'papaparse';
@@ -18,6 +17,23 @@ const SORT_TO_RANKING: Record<SortMode, RankingMode> = {
   long: 'long_term',
 };
 
+const DEMO_CANDIDATE: Omit<ExternalCandidate, 'composite_score' | 'skill_match'> = {
+  id: 'DEMO-001',
+  name: 'Marcus Weber',
+  current_company: 'CATL',
+  current_role: 'Senior Battery Engineer',
+  targetRole: '',
+  years_experience: 9,
+  education: 'MSc Electrochemistry, TU Munich',
+  technical_skills: 'battery chemistry; thermal management; BMS design; cell testing; high-voltage systems; MATLAB; COMSOL; Python; CAD (CATIA)',
+  certifications: 'ISO 26262; Six Sigma Green Belt; MATLAB Certified Professional',
+  languages: 'German (native); English (C1); Mandarin (B1)',
+  salary_expectation: 82000,
+  notice_period_weeks: 8,
+  portfolio_summary: 'Led cell prototyping line at CATL Erfurt, delivered 3 cell generations for European OEMs. Thermal runaway prevention patent holder.',
+  location: 'Munich',
+};
+
 export default function CandidateRankingPage() {
   const { shortlistedCandidates, shortlistCandidate, unshortlistCandidate, externalCandidates, setExternalCandidates, scenarios, selectedScenarioId, markPageComplete, projectConfig } = useStore();
   const { toast } = useToast();
@@ -27,34 +43,25 @@ export default function CandidateRankingPage() {
   const scenario = scenarios.find(s => s.id === selectedScenarioId);
   const positions = useMemo(() => scenario?.roles.filter(r => r.gap > 0).map(r => r.role) || [], [scenario]);
 
-  const scoreCandidates = useCallback((candidates: ExternalCandidate[], mode: RankingMode): ExternalCandidate[] => {
-    return candidates.map(c => {
-      const role = scenario?.roles.find(r => r.role === c.targetRole);
-      const salaryBandMax = SALARY_BAND_MIDPOINTS[role ? 'E4' : 'E4'] * 1.1;
-      const result = scoreExternalCandidate(
-        c.technical_skills || '',
-        c.years_experience,
-        c.certifications || '',
-        c.education || '',
-        c.current_company,
-        c.current_role,
-        c.salary_expectation,
-        c.notice_period_weeks,
-        role?.requiredSkills || [],
-        role?.requiredCerts || [],
-        salaryBandMax,
-        mode
-      );
-      return { ...c, composite_score: result.composite, skill_match: result.breakdown.skillMatch };
-    });
+  // Score a single candidate dynamically against current scenario
+  const scoreOne = useCallback((c: ExternalCandidate, mode: RankingMode) => {
+    const role = scenario?.roles.find(r => r.role === c.targetRole);
+    const salaryBandMax = SALARY_BAND_MIDPOINTS['E4'] * 1.1;
+    return scoreExternalCandidate(
+      c.technical_skills || '',
+      c.years_experience,
+      c.certifications || '',
+      c.education || '',
+      c.current_company,
+      c.current_role,
+      c.salary_expectation,
+      c.notice_period_weeks,
+      role?.requiredSkills || [],
+      role?.requiredCerts || [],
+      salaryBandMax,
+      mode
+    );
   }, [scenario]);
-
-  useEffect(() => {
-    if (externalCandidates.length === 0 && positions.length > 0) {
-      const candidates = generateExternalCandidates(positions);
-      setExternalCandidates(scoreCandidates(candidates, 'best_overall'));
-    }
-  }, [externalCandidates.length, positions, scoreCandidates, setExternalCandidates]);
 
   const handleCsvUpload = useCallback(() => {
     const input = document.createElement('input');
@@ -75,7 +82,7 @@ export default function CandidateRankingPage() {
               name: r.name || '',
               current_company: r.current_company || r.company || '',
               current_role: r.current_role || r.role || '',
-              targetRole: r.target_role || r.targetRole || positions[0] || '',
+              targetRole: r.target_role || r.targetRole || r.applied_for_role || positions[0] || '',
               years_experience: Number(r.years_experience || r.years_exp) || 0,
               education: r.education || '',
               technical_skills: r.technical_skills || r.skills || '',
@@ -86,13 +93,19 @@ export default function CandidateRankingPage() {
               portfolio_summary: r.portfolio_summary || '',
               location: r.location || '',
             }));
-          setExternalCandidates(scoreCandidates(parsed, SORT_TO_RANKING[sortMode]));
+          setExternalCandidates(parsed);
           toast({ title: 'Candidates Uploaded', description: `${parsed.length} external candidates loaded` });
         },
       });
     };
     input.click();
-  }, [positions, scoreCandidates, setExternalCandidates, sortMode, toast]);
+  }, [positions, setExternalCandidates, toast]);
+
+  const handleLoadDemo = useCallback(() => {
+    const demo: ExternalCandidate = { ...DEMO_CANDIDATE, targetRole: positions[0] || '' };
+    setExternalCandidates([...externalCandidates, demo]);
+    toast({ title: 'Demo Candidate Added', description: 'Marcus Weber (CATL) added for evaluation' });
+  }, [positions, externalCandidates, setExternalCandidates, toast]);
 
   const [selectedPosition, setSelectedPosition] = useState('');
   const [sortMode, setSortMode] = useState<SortMode>('best');
@@ -102,12 +115,17 @@ export default function CandidateRankingPage() {
     if (positions.length > 0 && !selectedPosition) setSelectedPosition(positions[0]);
   }, [positions, selectedPosition]);
 
+  // All scores computed at render time — never stored on candidate
   const candidates = useMemo(() => {
-    const filtered = externalCandidates.filter(c => c.targetRole === selectedPosition);
-    // Re-score with current mode weights, then sort by composite score
-    const rescored = scoreCandidates(filtered, SORT_TO_RANKING[sortMode]);
-    return [...rescored].sort((a, b) => (b.composite_score || 0) - (a.composite_score || 0));
-  }, [externalCandidates, selectedPosition, sortMode, scoreCandidates]);
+    const mode = SORT_TO_RANKING[sortMode];
+    return externalCandidates
+      .filter(c => c.targetRole === selectedPosition)
+      .map(c => {
+        const result = scoreOne(c, mode);
+        return { ...c, _score: result.composite, _skillMatch: result.breakdown.skillMatch, _breakdown: result.breakdown };
+      })
+      .sort((a, b) => b._score - a._score);
+  }, [externalCandidates, selectedPosition, sortMode, scoreOne]);
 
   const handleAiAnalyze = async () => {
     if (!selectedPosition || candidates.length === 0) return;
@@ -122,7 +140,7 @@ export default function CandidateRankingPage() {
           company: c.current_company,
           yearsExp: c.years_experience,
           skills: c.technical_skills,
-          score: c.composite_score || 0,
+          score: c._score,
           salary: c.salary_expectation,
         })),
         targetRole: selectedPosition,
@@ -162,6 +180,9 @@ export default function CandidateRankingPage() {
     <div>
       <PageHeader title="Candidate Ranking" subtitle="Evaluate and compare external candidates">
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleLoadDemo} disabled={externalCandidates.some(c => c.id === 'DEMO-001')}>
+            <UserPlus size={14} className="mr-2" />Demo Candidate
+          </Button>
           <Button variant="outline" size="sm" onClick={handleCsvUpload}>
             <Upload size={14} className="mr-2" />Upload CSV
           </Button>
@@ -177,7 +198,7 @@ export default function CandidateRankingPage() {
       <div className="grid grid-cols-4 gap-4 mb-6">
         <MetricCard label="Total Candidates" value={externalCandidates.length} />
         <MetricCard label="Shortlisted" value={shortlistedCandidates.length} />
-        <MetricCard label="Avg Score" value={externalCandidates.length > 0 ? Math.round(externalCandidates.reduce((a, c) => a + (c.composite_score || 0), 0) / externalCandidates.length) : 0} />
+        <MetricCard label="Avg Score" value={candidates.length > 0 ? Math.round(candidates.reduce((a, c) => a + c._score, 0) / candidates.length) : 0} />
         <MetricCard label="Positions" value={positions.length} />
       </div>
 
@@ -197,7 +218,8 @@ export default function CandidateRankingPage() {
         <div className="w-[35%] shrink-0 space-y-2">
           {positions.map(p => {
             const count = externalCandidates.filter(c => c.targetRole === p).length;
-            const topScore = externalCandidates.filter(c => c.targetRole === p).reduce((max, c) => Math.max(max, c.composite_score || 0), 0);
+            const pCandidates = externalCandidates.filter(c => c.targetRole === p).map(c => scoreOne(c, 'best_overall'));
+            const topScore = pCandidates.length > 0 ? Math.max(...pCandidates.map(r => r.composite)) : 0;
             return (
               <button key={p} onClick={() => { setSelectedPosition(p); setAiEvals(null); }} className={`w-full text-left card-surface p-4 transition-all ${selectedPosition === p ? 'ring-2 ring-primary' : ''}`}>
                 <h4 className="font-medium text-foreground text-sm">{p}</h4>
@@ -217,6 +239,19 @@ export default function CandidateRankingPage() {
             ))}
           </div>
 
+          {candidates.length === 0 && (
+            <div className="card-surface p-10 text-center">
+              <UserPlus size={36} className="mx-auto text-muted-foreground mb-3 opacity-40" />
+              <p className="text-foreground font-medium mb-1">No candidates for this role</p>
+              <p className="text-sm text-muted-foreground mb-4">Upload a CSV of applicants or add the demo candidate to start ranking</p>
+              <div className="flex gap-2 justify-center">
+                <Button variant="outline" size="sm" onClick={handleCsvUpload}><Upload size={14} className="mr-2" />Upload CSV</Button>
+                <Button size="sm" onClick={handleLoadDemo} disabled={externalCandidates.some(c => c.id === 'DEMO-001')}>
+                  <UserPlus size={14} className="mr-2" />Add Demo Candidate
+                </Button>
+              </div>
+            </div>
+          )}
           {candidates.map(c => {
             const isShortlisted = shortlistedCandidates.includes(c.id);
             const candidateSkills = (c.technical_skills || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
@@ -226,7 +261,7 @@ export default function CandidateRankingPage() {
               <div key={c.id} className="card-surface p-4 animate-fade-in-up">
                 <div className="flex items-start gap-4">
                   <div className="text-center">
-                    <p className={`text-2xl font-bold ${getScoreColor(c.composite_score || 0)}`}>{c.composite_score || 0}</p>
+                    <p className={`text-2xl font-bold ${getScoreColor(c._score)}`}>{c._score}</p>
                     <p className="text-[10px] text-muted-foreground">SCORE</p>
                   </div>
                   <div className="flex-1">
@@ -246,10 +281,10 @@ export default function CandidateRankingPage() {
                     </div>
                     <div className="mt-2 mb-1">
                       <div className="flex justify-between text-[10px] text-muted-foreground">
-                        <span>Skill Match</span><span>{c.skill_match || 0}%</span>
+                        <span>Skill Match</span><span>{c._skillMatch}%</span>
                       </div>
                       <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full ${(c.skill_match || 0) >= 70 ? 'bg-success' : 'bg-warning'}`} style={{ width: `${c.skill_match || 0}%` }} />
+                        <div className={`h-full rounded-full ${c._skillMatch >= 70 ? 'bg-success' : 'bg-warning'}`} style={{ width: `${c._skillMatch}%` }} />
                       </div>
                     </div>
                     {/* AI insights */}
@@ -293,49 +328,55 @@ export default function CandidateRankingPage() {
         </div>
       </div>
 
-      {compareData.length >= 2 && (
-        <div className="card-surface p-5 mt-6 animate-fade-in-up">
-          <h3 className="font-semibold text-foreground mb-4">Comparison</h3>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border">
-                <th className="text-left p-2 text-xs text-muted-foreground">Attribute</th>
-                {compareData.map(c => <th key={c.id} className="text-left p-2 text-xs text-foreground">{c.name}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {[
-                { label: 'Score', key: 'composite_score' },
-                { label: 'Skill Match', key: 'skill_match' },
-                { label: 'Experience', key: 'years_experience' },
-                { label: 'Salary', key: 'salary_expectation' },
-                { label: 'Notice', key: 'notice_period_weeks' },
-                { label: 'Education', key: 'education' },
-                { label: 'Location', key: 'location' },
-              ].map(attr => {
-                const values = compareData.map(c => (c as any)[attr.key]);
-                const numValues = values.filter((v): v is number => typeof v === 'number');
-                const best = attr.key === 'salary_expectation' || attr.key === 'notice_period_weeks'
-                  ? Math.min(...numValues) : Math.max(...numValues);
-                return (
-                  <tr key={attr.key} className="border-b border-border">
-                    <td className="p-2 text-muted-foreground">{attr.label}</td>
-                    {compareData.map(c => {
-                      const val = (c as any)[attr.key];
-                      const isBest = typeof val === 'number' && val === best;
-                      return (
-                        <td key={c.id} className={`p-2 ${isBest ? 'text-success font-medium' : 'text-foreground'}`}>
-                          {attr.key === 'salary_expectation' ? `€${val.toLocaleString()}` : attr.key === 'notice_period_weeks' ? (val === 0 ? 'Immediate' : `${val}w`) : typeof val === 'number' ? val : val}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {compareData.length >= 2 && (() => {
+        const scoredCompare = compareData.map(c => {
+          const result = scoreOne(c, SORT_TO_RANKING[sortMode]);
+          return { ...c, _score: result.composite, _skillMatch: result.breakdown.skillMatch };
+        });
+        return (
+          <div className="card-surface p-5 mt-6 animate-fade-in-up">
+            <h3 className="font-semibold text-foreground mb-4">Comparison</h3>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left p-2 text-xs text-muted-foreground">Attribute</th>
+                  {scoredCompare.map(c => <th key={c.id} className="text-left p-2 text-xs text-foreground">{c.name}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  { label: 'Score', key: '_score' },
+                  { label: 'Skill Match', key: '_skillMatch' },
+                  { label: 'Experience', key: 'years_experience' },
+                  { label: 'Salary', key: 'salary_expectation' },
+                  { label: 'Notice', key: 'notice_period_weeks' },
+                  { label: 'Education', key: 'education' },
+                  { label: 'Location', key: 'location' },
+                ].map(attr => {
+                  const values = scoredCompare.map(c => (c as any)[attr.key]);
+                  const numValues = values.filter((v): v is number => typeof v === 'number');
+                  const best = attr.key === 'salary_expectation' || attr.key === 'notice_period_weeks'
+                    ? Math.min(...numValues) : Math.max(...numValues);
+                  return (
+                    <tr key={attr.key} className="border-b border-border">
+                      <td className="p-2 text-muted-foreground">{attr.label}</td>
+                      {scoredCompare.map(c => {
+                        const val = (c as any)[attr.key];
+                        const isBest = typeof val === 'number' && val === best;
+                        return (
+                          <td key={c.id} className={`p-2 ${isBest ? 'text-success font-medium' : 'text-foreground'}`}>
+                            {attr.key === 'salary_expectation' ? `€${val.toLocaleString()}` : attr.key === 'notice_period_weeks' ? (val === 0 ? 'Immediate' : `${val}w`) : typeof val === 'number' ? val : val}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
     </div>
   );
 }
