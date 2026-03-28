@@ -2,29 +2,18 @@ import { useMemo, useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { PageHeader, MetricCard, Badge } from '@/components/ui/MetricCard';
 import { Button } from '@/components/ui/button';
-import { CheckCircle2, X, ArrowRight } from 'lucide-react';
+import { CheckCircle2, X, ArrowRight, Sparkles } from 'lucide-react';
 import { getSkillOverlap, getMissingSkills, getMatchedSkills } from '@/lib/scoring';
 import { useToast } from '@/hooks/use-toast';
+import { invokeAI, GeneratedTrainingPaths } from '@/lib/aiService';
 
-const trainingCourses = [
-  { name: 'Battery Cell Fundamentals', weeks: 4, cost: 1200, method: 'Online' as const, skills: ['battery chemistry', 'cell testing'] },
-  { name: 'BMS Architecture & Design', weeks: 6, cost: 2400, method: 'In-person' as const, skills: ['bms design', 'thermal management'] },
-  { name: 'High-Voltage Safety Certification', weeks: 2, cost: 800, method: 'In-person' as const, skills: ['ev safety'] },
-  { name: 'ISO 26262 Functional Safety', weeks: 3, cost: 2400, method: 'In-person' as const, skills: ['iso 26262'] },
-  { name: 'Python for Data Engineering', weeks: 4, cost: 1000, method: 'Online' as const, skills: ['python', 'sql'] },
-  { name: 'Machine Learning Engineering', weeks: 6, cost: 2200, method: 'Online' as const, skills: ['machine learning', 'deep learning'] },
-  { name: 'Six Sigma Green Belt', weeks: 8, cost: 3200, method: 'Hybrid' as const, skills: ['six sigma', 'spc'] },
-  { name: 'PLC & Automation Systems', weeks: 5, cost: 1800, method: 'In-person' as const, skills: ['plc programming', 'scada'] },
-  { name: 'Agile/SAFe for Hardware Teams', weeks: 2, cost: 900, method: 'Online' as const, skills: ['agile', 'safe'] },
-  { name: 'AUTOSAR Fundamentals', weeks: 3, cost: 1200, method: 'Online' as const, skills: ['autosar', 'embedded systems'] },
-  { name: 'Leadership for Technical Leads', weeks: 2, cost: 1600, method: 'In-person' as const, skills: ['stakeholder management'] },
-  { name: 'Root Cause Analysis & FMEA', weeks: 3, cost: 1400, method: 'Hybrid' as const, skills: ['root cause analysis', 'fmea'] },
-];
 
 export default function UpskillingPage() {
   const { employees, upskillCandidates, addUpskillCandidate, approveUpskill, removeUpskillCandidate, roster, scenarios, selectedScenarioId, setUpskillTrainingPath, markPageComplete } = useStore();
   const { toast } = useToast();
   const [viewMode, setViewMode] = useState<'card' | 'table'>('card');
+  const [generatingPaths, setGeneratingPaths] = useState(false);
+  const [aiTrainingPaths, setAiTrainingPaths] = useState<Record<string, { courses: any[]; totalCost: number; totalWeeks: number }>>({});
 
   const scenario = scenarios.find(s => s.id === selectedScenarioId);
   const roles = scenario?.roles || [];
@@ -40,12 +29,13 @@ export default function UpskillingPage() {
           const missing = getMissingSkills(empSkills, role.requiredSkills);
           const matched = getMatchedSkills(empSkills, role.requiredSkills);
 
-          // Generate training path based on missing skills
-          const path = trainingCourses.filter(course =>
-            course.skills.some(cs => missing.some(ms => ms.toLowerCase().includes(cs) || cs.includes(ms.toLowerCase())))
-          ).slice(0, 4);
-          const totalCost = path.reduce((s, c) => s + c.cost, 0);
-          const totalWeeks = path.reduce((s, c) => s + c.weeks, 0);
+          // Use AI-generated training path if available, otherwise show placeholder
+          const aiPath = aiTrainingPaths[e.employee_id];
+          const trainingPath = aiPath?.courses.map(c => ({
+            course: c.course, duration: c.duration, cost: c.cost, method: c.method, coversSkills: c.coversSkills,
+          })) || [];
+          const totalCost = aiPath?.totalCost || 0;
+          const totalWeeks = aiPath?.totalWeeks || 0;
 
           return {
             ...e,
@@ -53,9 +43,7 @@ export default function UpskillingPage() {
             overlap: Math.round(overlap * 100),
             missingSkills: missing,
             matchedSkills: matched,
-            trainingPath: path.map(p => ({
-              course: p.name, duration: `${p.weeks} weeks`, cost: p.cost, method: p.method, coversSkills: p.skills,
-            })),
+            trainingPath,
             totalCost,
             totalWeeks,
           };
@@ -64,7 +52,36 @@ export default function UpskillingPage() {
         .sort((a, b) => b.overlap - a.overlap)
         .slice(0, 4);
     });
-  }, [employees, roles, roster, upskillCandidates]);
+  }, [employees, roles, roster, upskillCandidates, aiTrainingPaths]);
+
+  const handleGenerateTrainingPaths = async () => {
+    setGeneratingPaths(true);
+    try {
+      const candidatesPayload = uniqueCandidates.slice(0, 10).map(c => ({
+        employeeId: c.employee_id,
+        name: c.name,
+        currentRole: c.role,
+        targetRole: c.targetRole,
+        currentSkills: c.technical_skills,
+        missingSkills: c.missingSkills,
+        overlap: c.overlap,
+      }));
+
+      const result = await invokeAI<GeneratedTrainingPaths>('generate-upskilling', { candidates: candidatesPayload });
+
+      const pathMap: Record<string, { courses: any[]; totalCost: number; totalWeeks: number }> = {};
+      result.trainingPaths.forEach(tp => {
+        pathMap[tp.employeeId] = { courses: tp.courses, totalCost: tp.totalCost, totalWeeks: tp.totalWeeks };
+      });
+      setAiTrainingPaths(pathMap);
+      toast({ title: 'AI Training Paths Generated', description: `${result.trainingPaths.length} personalized paths created` });
+    } catch (err) {
+      console.error('Training path generation failed:', err);
+      toast({ title: 'Generation Failed', description: err instanceof Error ? err.message : 'Please try again', variant: 'destructive' });
+    } finally {
+      setGeneratingPaths(false);
+    }
+  };
 
   // Deduplicate by employee
   const uniqueCandidates = useMemo(() => {
@@ -94,8 +111,11 @@ export default function UpskillingPage() {
 
   return (
     <div>
-      <PageHeader title="Upskilling Paths" subtitle="Training plans for internal candidates">
+      <PageHeader title="Upskilling Paths" subtitle="AI-powered training plans for internal candidates">
         <div className="flex gap-2">
+          <Button size="sm" onClick={handleGenerateTrainingPaths} disabled={generatingPaths || uniqueCandidates.length === 0}>
+            <Sparkles size={14} className="mr-2" />{generatingPaths ? 'Generating...' : 'Generate AI Training Paths'}
+          </Button>
           <Button size="sm" variant={viewMode === 'card' ? 'default' : 'outline'} onClick={() => setViewMode('card')}>Cards</Button>
           <Button size="sm" variant={viewMode === 'table' ? 'default' : 'outline'} onClick={() => setViewMode('table')}>Table</Button>
         </div>
@@ -188,17 +208,21 @@ export default function UpskillingPage() {
 
                 <div className="border-t border-border pt-3 mb-3">
                   <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Training Path</p>
-                  <div className="space-y-1.5">
-                    {c.trainingPath.map((t, i) => (
-                      <div key={i} className="flex items-center gap-2 text-xs">
-                        <span className="w-4 h-4 rounded-full bg-secondary flex items-center justify-center text-muted-foreground font-medium">{i + 1}</span>
-                        <span className="text-foreground flex-1">{t.course}</span>
-                        <span className="text-muted-foreground">{t.duration}</span>
-                        <span className="text-muted-foreground">€{t.cost.toLocaleString()}</span>
-                        <Badge variant="badge-blue">{t.method}</Badge>
-                      </div>
-                    ))}
-                  </div>
+                  {c.trainingPath.length > 0 ? (
+                    <div className="space-y-1.5">
+                      {c.trainingPath.map((t, i) => (
+                        <div key={i} className="flex items-center gap-2 text-xs">
+                          <span className="w-4 h-4 rounded-full bg-secondary flex items-center justify-center text-muted-foreground font-medium">{i + 1}</span>
+                          <span className="text-foreground flex-1">{t.course}</span>
+                          <span className="text-muted-foreground">{t.duration}</span>
+                          <span className="text-muted-foreground">€{t.cost.toLocaleString()}</span>
+                          <Badge variant="badge-blue">{t.method}</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground italic">Click "Generate AI Training Paths" to create a personalized plan</p>
+                  )}
                 </div>
 
                 <div className="flex gap-2">

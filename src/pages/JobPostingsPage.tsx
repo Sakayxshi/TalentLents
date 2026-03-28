@@ -5,29 +5,10 @@ import { Button } from '@/components/ui/button';
 import { RefreshCw, Copy, FileText } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { SALARY_BAND_MIDPOINTS } from '@/lib/scoring';
+import { invokeAI, GeneratedPostings } from '@/lib/aiService';
 
 const statusColors: Record<string, string> = { Draft: 'badge-amber', Ready: 'badge-green', Posted: 'badge-blue' };
 
-function generateDescription(role: string, project: string, skills: string[]) {
-  return {
-    opening: `BMW Group is embarking on a transformative initiative — ${project}. We're seeking a talented ${role} to join our pioneering team and help shape the future of sustainable mobility.`,
-    roleOverview: `As a ${role}, you will play a critical role in scaling our capabilities. You'll work alongside world-class engineers and cross-functional teams, contributing directly to BMW's strategic vision. This role requires strong technical expertise in ${skills.slice(0, 3).join(', ')}.`,
-    requiredQualifications: [
-      '5+ years relevant experience in automotive or related industry',
-      `Strong proficiency in ${skills.slice(0, 2).join(' and ')}`,
-      "Bachelor's or Master's in Engineering or related field",
-      'Proven track record of successful project delivery',
-      'Experience working in cross-functional agile teams',
-    ],
-    preferredQualifications: [
-      "Master's or Ph.D. in relevant discipline",
-      'German language skills (B2 or higher)',
-      'EV/battery industry experience',
-      `Certifications in ${skills.length > 2 ? skills[2] : 'relevant domain'}`,
-    ],
-    bmwOffers: 'Competitive compensation package, relocation support, BMW vehicle program, flexible working arrangements, continuous learning budget of €5,000/year, company pension scheme, and the unique opportunity to shape the future of electric mobility at one of the world\'s most prestigious automotive companies.',
-  };
-}
 
 export default function JobPostingsPage() {
   const { scenarios, selectedScenarioId, projectConfig, roster, employees, jobPostings, setJobPostings, updateJobPosting, markPageComplete } = useStore();
@@ -56,24 +37,50 @@ export default function JobPostingsPage() {
 
   const selected = selectedId ? postings.find(p => p.roleId === selectedId) : postings[0];
 
-  const handleGenerateAll = () => {
+  const handleGenerateAll = async () => {
     setGenerating(true);
     const projectName = projectConfig?.name || 'Strategic Initiative';
-    setTimeout(() => {
-      const generated: JobPosting[] = postings.map(p => {
+    try {
+      const payload = postings.map(p => {
         const roleConfig = scenario?.roles.find(r => r.role === p.role);
-        const skills = roleConfig?.requiredSkills || [];
+        return {
+          roleId: p.roleId,
+          role: p.role,
+          department: p.department,
+          location: p.location,
+          salaryBand: p.salaryBand,
+          skills: roleConfig?.requiredSkills || [],
+        };
+      });
+
+      const result = await invokeAI<GeneratedPostings>('generate-job-postings', {
+        postings: payload,
+        projectName,
+      });
+
+      const generated: JobPosting[] = postings.map(p => {
+        const desc = result.postings.find(rp => rp.roleId === p.roleId);
         return {
           ...p,
           status: 'Ready' as const,
-          description: generateDescription(p.role, projectName, skills),
+          description: desc ? {
+            opening: desc.opening,
+            roleOverview: desc.roleOverview,
+            requiredQualifications: desc.requiredQualifications,
+            preferredQualifications: desc.preferredQualifications,
+            bmwOffers: desc.bmwOffers,
+          } : null,
         };
       });
       setJobPostings(generated);
       markPageComplete(6);
+      toast({ title: 'AI Job Postings Generated', description: `${generated.length} postings created by AI` });
+    } catch (err) {
+      console.error('Job posting generation failed:', err);
+      toast({ title: 'Generation Failed', description: err instanceof Error ? err.message : 'Please try again', variant: 'destructive' });
+    } finally {
       setGenerating(false);
-      toast({ title: 'Job Postings Generated', description: `${generated.length} postings created` });
-    }, 1500);
+    }
   };
 
   const handleCopy = () => {

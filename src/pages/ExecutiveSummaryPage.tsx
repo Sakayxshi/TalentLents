@@ -1,10 +1,12 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useStore } from '@/store/useStore';
 import { Badge } from '@/components/ui/MetricCard';
 import { Button } from '@/components/ui/button';
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts';
-import { Download } from 'lucide-react';
+import { Download, Sparkles } from 'lucide-react';
 import { calculateCompositeScore, getRecruitingWeeks, SALARY_BAND_WEEKLY, SALARY_BAND_MIDPOINTS, getOnboardingCost } from '@/lib/scoring';
+import { invokeAI, ExecutiveInsights } from '@/lib/aiService';
+import { useToast } from '@/hooks/use-toast';
 
 export default function ExecutiveSummaryPage() {
   const { projectConfig, scenarios, selectedScenarioId, roster, employees, upskillCandidates, externalCandidates, shortlistedCandidates } = useStore();
@@ -66,8 +68,44 @@ export default function ExecutiveSummaryPage() {
   const readiness = dimensions.length > 0 ? Math.round(dimensions.reduce((a, d) => a + d.score, 0) / dimensions.length) : 0;
   const gaugeColor = readiness >= 80 ? 'hsl(135,50%,40%)' : readiness >= 60 ? 'hsl(40,80%,48%)' : 'hsl(0,80%,62%)';
 
-  // Risks & actions from actual data
-  const risks = useMemo(() => {
+  // AI-powered insights
+  const { toast } = useToast();
+  const [aiInsights, setAiInsights] = useState<ExecutiveInsights | null>(null);
+  const [loadingInsights, setLoadingInsights] = useState(false);
+
+  const fetchInsights = async () => {
+    if (!projectConfig || !scenario) return;
+    setLoadingInsights(true);
+    try {
+      const result = await invokeAI<ExecutiveInsights>('executive-insights', {
+        projectConfig,
+        scenarioLabel: scenario.label,
+        teamComposition: {
+          total: totalTeam,
+          internal: Math.max(0, internalCount),
+          upskilled: approvedUpskill.length,
+          external: shortlisted.length,
+        },
+        costs: {
+          total: costs.total,
+          internal: costs.internalTotal,
+          external: costs.externalTotal,
+          perHead: costs.perHead,
+        },
+        readiness,
+        risks: fallbackRisks,
+      });
+      setAiInsights(result);
+    } catch (err) {
+      console.error('Executive insights failed:', err);
+      toast({ title: 'Insights Failed', description: err instanceof Error ? err.message : 'Please try again', variant: 'destructive' });
+    } finally {
+      setLoadingInsights(false);
+    }
+  };
+
+  // Fallback risks from data
+  const fallbackRisks = useMemo(() => {
     const r: string[] = [];
     if (!scenario) return r;
     const criticalGaps = scenario.roles.filter(role => role.gap > role.headcount * 0.5);
@@ -78,7 +116,9 @@ export default function ExecutiveSummaryPage() {
     return r.slice(0, 3);
   }, [scenario, rosterEmps, shortlisted]);
 
-  const actions = useMemo(() => {
+  const risks = aiInsights?.risks.map(r => r.description) || fallbackRisks;
+
+  const fallbackActions = useMemo(() => {
     const a: string[] = [];
     if (!scenario) return a;
     const totalGap = scenario.roles.reduce((s, r) => s + r.gap, 0);
@@ -89,15 +129,18 @@ export default function ExecutiveSummaryPage() {
     return a.slice(0, 3);
   }, [scenario, rosterEmps, approvedUpskill]);
 
-  const handleExport = () => {
-    window.print();
-  };
+  const actions = aiInsights?.actions || fallbackActions;
 
   return (
     <div className="h-[calc(100vh-48px)] flex flex-col print:h-auto">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold text-foreground">Executive Summary</h1>
-        <Button size="sm" onClick={handleExport}><Download size={14} className="mr-2" />Export PDF</Button>
+        <div className="flex gap-2">
+          <Button size="sm" onClick={fetchInsights} disabled={loadingInsights || !scenario}>
+            <Sparkles size={14} className="mr-2" />{loadingInsights ? 'Generating...' : aiInsights ? 'Refresh Insights' : 'Generate AI Insights'}
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => window.print()}><Download size={14} className="mr-2" />Export PDF</Button>
+        </div>
       </div>
 
       <div className="flex gap-4 flex-1 min-h-0">
@@ -192,12 +235,29 @@ export default function ExecutiveSummaryPage() {
             </div>
           </div>
 
+          {aiInsights?.narrative && (
+            <div className="card-surface p-4">
+              <h3 className="text-xs text-muted-foreground uppercase tracking-wider mb-2">AI Strategic Assessment</h3>
+              <p className="text-sm text-foreground leading-relaxed">{aiInsights.narrative}</p>
+              <div className="mt-2 flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">Confidence:</span>
+                <Badge variant={aiInsights.confidence === 'High' ? 'badge-green' : aiInsights.confidence === 'Medium' ? 'badge-amber' : 'badge-red'}>{aiInsights.confidence}</Badge>
+              </div>
+            </div>
+          )}
+
           <div className="card-surface p-4">
             <h3 className="text-xs text-muted-foreground uppercase tracking-wider mb-3">Top 3 Risks</h3>
             <div className="space-y-2">
-              {risks.length > 0 ? risks.map((r, i) => (
-                <div key={i} className="flex items-center gap-2"><Badge variant={i === 0 ? 'badge-red' : 'badge-amber'}>{i === 0 ? 'High' : 'Med'}</Badge><span className="text-sm text-foreground">{r}</span></div>
-              )) : (
+              {risks.length > 0 ? risks.map((r, i) => {
+                const severity = aiInsights?.risks[i]?.severity;
+                return (
+                  <div key={i} className="flex items-center gap-2">
+                    <Badge variant={severity === 'High' || (!severity && i === 0) ? 'badge-red' : 'badge-amber'}>{severity || (i === 0 ? 'High' : 'Med')}</Badge>
+                    <span className="text-sm text-foreground">{r}</span>
+                  </div>
+                );
+              }) : (
                 <p className="text-sm text-muted-foreground">Build your team to see risk analysis</p>
               )}
             </div>
@@ -221,7 +281,7 @@ export default function ExecutiveSummaryPage() {
 
       <div className="border-t border-border mt-4 pt-3 flex items-center justify-between text-[11px] text-muted-foreground">
         <span>Generated by TalentLens | {new Date().toLocaleDateString()} | {employees.length} employees | Scenario: {scenario?.label || 'None'}</span>
-        <Button size="sm" onClick={handleExport}><Download size={14} className="mr-2" />Export PDF</Button>
+        <Button size="sm" onClick={() => window.print()}><Download size={14} className="mr-2" />Export PDF</Button>
       </div>
     </div>
   );
