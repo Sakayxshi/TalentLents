@@ -355,10 +355,30 @@ export default function DashboardPage() {
                     <div className="flex justify-between"><span className="text-muted-foreground">Cost</span><span className="text-foreground font-medium">{s.costEstimate}</span></div>
                     <div className="flex justify-between"><span className="text-muted-foreground">Timeline</span><span className="text-foreground font-medium">{s.timeline}</span></div>
                   </div>
+                  {/* Roster assignment indicator */}
+                  {s.id !== 'custom' && (
+                    <div className="mt-3 flex items-center gap-2 rounded-lg bg-primary/5 border border-primary/10 px-3 py-2">
+                      <Users size={14} className="text-primary shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                            {s.id === selectedScenarioId ? 'Assigned' : 'Est. Internal'}
+                          </span>
+                          <span className="text-sm font-bold text-primary">{scenarioAssignCounts[s.id] || 0}</span>
+                        </div>
+                        <div className="h-1 bg-secondary rounded-full mt-1 overflow-hidden">
+                          <div
+                            className="h-full bg-primary rounded-full transition-all duration-500"
+                            style={{ width: `${s.totalHeadcount > 0 ? Math.min(100, ((scenarioAssignCounts[s.id] || 0) / s.totalHeadcount) * 100) : 0}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <Button
                     variant={selectedScenarioId === s.id ? 'default' : 'outline'}
                     size="sm"
-                    className="mt-4 w-full"
+                    className="mt-3 w-full"
                     onClick={(e) => {
                       e.stopPropagation();
                       selectScenario(s.id);
