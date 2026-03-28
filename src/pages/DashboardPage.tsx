@@ -46,6 +46,21 @@ const PROJECT_PRESETS = [
       staffEstimate: '60–90 people, heavy software — need ML/NLP engineers with automotive LLM experience, cloud infrastructure architects (AWS/Azure), embedded systems developers for in-vehicle edge compute, UX designers specialized in voice and multimodal interaction, product managers with connected car domain expertise, data engineers for telemetry pipelines, QA engineers with automotive SPICE and ISO 26262 familiarity, and DevOps leads experienced with OTA update infrastructure at scale. Key hires should have background at Cerence, Qualcomm Ride, or comparable automotive AI vendors.',
     },
   },
+  {
+    id: 'autobahn-pilot',
+    label: 'Autonomous Driving L3',
+    tag: 'Autobahn · Critical',
+    color: 'border-l-warning',
+    form: {
+      name: 'Autonomous Driving Level 3 — Autobahn Pilot',
+      description: 'Development and homologation of a SAE Level 3 conditional automation system for highway driving across the BMW 5 Series, 7 Series, and iX platforms. The system must enable fully hands-off, eyes-off driving at speeds up to 130 km/h on approved Autobahn segments, with reliable handover protocols and redundant fail-safe architecture. Scope covers sensor fusion stack (LiDAR, radar, camera), decision-making AI, HD mapping integration, V2X communication, and regulatory approval across Germany, Austria, and France under UNECE R157. Must pass 12M+ validated simulation kilometers and 500,000 km of real-world fleet testing before type approval submission.',
+      targetDeadline: 'Q1 2028',
+      budgetMin: 35000000,
+      budgetMax: 60000000,
+      priority: 'Critical' as const,
+      staffEstimate: '150–200 people, cross-disciplinary — need perception engineers (computer vision, LiDAR point cloud processing), sensor fusion architects, motion planning and controls engineers, functional safety leads with ISO 26262 ASIL-D certification experience, systems engineers for redundant braking and steering architecture, simulation engineers (CARLA, dSPACE), HD mapping specialists, V2X communication engineers, homologation and regulatory affairs managers with UNECE working party contacts, fleet test operations coordinators, and a dedicated cybersecurity team for attack surface analysis. Senior leadership hires should come from Mobileye, Waymo, Argo AI alumni, or BMW\'s existing ADAS division in Unterschleißheim.',
+    },
+  },
 ] as const;
 
 // ─── Local scenario generator (fallback when AI is unavailable) ───────────────
@@ -63,6 +78,13 @@ const ROLE_PROFILES: Record<string, { skills: string[]; certs: string[]; keyword
   'UX Designer':             { skills: ['figma', 'prototyping', 'user research', 'design systems', 'voice ui'], certs: ['Google UX Certificate'], keywords: ['ux', 'ui', 'design', 'voice', 'multimodal', 'infotainment', 'hmi'] },
   'Project Manager':         { skills: ['agile', 'jira', 'stakeholder management', 'budgeting', 'safe'], certs: ['PMP', 'SAFe Agilist'], keywords: ['project', 'program', 'rollout', 'launch', 'coordination'] },
   'Mechanical Engineer':     { skills: ['cad', 'fea', 'solidworks', 'catia', 'structural analysis'], certs: ['CATIA V5 Certified'], keywords: ['mechanical', 'structural', 'hardware', 'facility', 'buildout'] },
+  'Perception Engineer':     { skills: ['computer vision', 'lidar', 'point cloud processing', 'pytorch', 'sensor fusion'], certs: ['ISO 26262'], keywords: ['perception', 'lidar', 'camera', 'computer vision', 'sensor fusion', 'adas', 'autonomous'] },
+  'Motion Planning Engineer':{ skills: ['motion planning', 'controls', 'c++', 'ros', 'path planning'], certs: ['ISO 26262'], keywords: ['motion planning', 'controls', 'path planning', 'decision-making', 'autonomous', 'driving'] },
+  'Simulation Engineer':     { skills: ['carla', 'dspace', 'matlab', 'simulink', 'hil testing'], certs: ['Certified Simulation Professional'], keywords: ['simulation', 'carla', 'dspace', 'testing', 'validation', 'kilometers'] },
+  'Functional Safety Lead':  { skills: ['iso 26262', 'fmea', 'fault tree analysis', 'asil', 'functional safety'], certs: ['ISO 26262 Certified', 'TÜV Functional Safety'], keywords: ['functional safety', 'asil', 'iso 26262', 'fail-safe', 'redundant', 'homologation'] },
+  'Systems Engineer':        { skills: ['systems engineering', 'requirements management', 'doors', 'v-model', 'architecture'], certs: ['INCOSE CSEP'], keywords: ['systems engineer', 'redundant', 'architecture', 'braking', 'steering', 'integration'] },
+  'Cybersecurity Engineer':  { skills: ['penetration testing', 'threat modeling', 'iso 21434', 'secure boot', 'can bus security'], certs: ['ISO 21434', 'CISSP'], keywords: ['cybersecurity', 'security', 'attack surface', 'unece r155', 'penetration'] },
+  'Regulatory Affairs Manager': { skills: ['type approval', 'unece', 'homologation', 'regulatory strategy', 'stakeholder management'], certs: ['Regulatory Affairs Certified'], keywords: ['regulatory', 'homologation', 'unece', 'type approval', 'r157', 'compliance'] },
 };
 
 function generateScenariosLocally(
@@ -497,7 +519,7 @@ export default function DashboardPage() {
       )}
 
       {/* Project Presets */}
-      <div className="grid grid-cols-2 gap-3 mb-4">
+      <div className="grid grid-cols-3 gap-3 mb-4">
         {PROJECT_PRESETS.map(preset => (
           <button
             key={preset.id}
