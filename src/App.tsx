@@ -12,7 +12,7 @@ import UpskillingPage from "./pages/UpskillingPage";
 import JobPostingsPage from "./pages/JobPostingsPage";
 import CandidateRankingPage from "./pages/CandidateRankingPage";
 import CostsPage from "./pages/CostsPage";
-import TeamEfficiencyPage from "./pages/TeamEfficiencyPage";
+
 import TimelinePage from "./pages/TimelinePage";
 import ExecutiveSummaryPage from "./pages/ExecutiveSummaryPage";
 import NotFound from "./pages/NotFound.tsx";
@@ -35,7 +35,7 @@ const App = () => (
             <Route path="/job-postings" element={<JobPostingsPage />} />
             <Route path="/candidates" element={<CandidateRankingPage />} />
             <Route path="/costs" element={<CostsPage />} />
-            <Route path="/efficiency" element={<TeamEfficiencyPage />} />
+
             <Route path="/timeline" element={<TimelinePage />} />
             <Route path="/summary" element={<ExecutiveSummaryPage />} />
             <Route path="*" element={<NotFound />} />

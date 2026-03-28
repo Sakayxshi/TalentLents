@@ -2,7 +2,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useStore, PageId } from '@/store/useStore';
 import {
   Upload, LayoutDashboard, Users, BarChart3, GraduationCap,
-  FileText, Trophy, DollarSign, Gauge, Calendar, FileOutput,
+  FileText, Trophy, DollarSign, Calendar, FileOutput,
   ChevronLeft, ChevronRight, CheckCircle2
 } from 'lucide-react';
 import { useState } from 'react';
@@ -16,7 +16,7 @@ const pages = [
   { id: 6 as PageId, label: 'Job Postings', icon: FileText, path: '/job-postings' },
   { id: 7 as PageId, label: 'Candidate Ranking', icon: Trophy, path: '/candidates' },
   { id: 8 as PageId, label: 'Costs', icon: DollarSign, path: '/costs' },
-  { id: 9 as PageId, label: 'Team Efficiency', icon: Gauge, path: '/efficiency' },
+
   { id: 10 as PageId, label: 'Timeline', icon: Calendar, path: '/timeline' },
   { id: 11 as PageId, label: 'Executive Summary', icon: FileOutput, path: '/summary' },
 ];

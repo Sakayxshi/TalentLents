@@ -18,9 +18,12 @@ export default function JobPostingsPage() {
 
   const scenario = scenarios.find(s => s.id === selectedScenarioId);
 
-  // Build postings from gaps
-  const postings = useMemo(() => {
-    if (jobPostings.length > 0) return jobPostings;
+  const postings = jobPostings;
+
+  const selected = selectedId ? postings.find(p => p.roleId === selectedId) : postings[0];
+
+  // Build draft postings from scenario gaps
+  const gapRoles = useMemo(() => {
     if (!scenario) return [];
     return scenario.roles
       .filter(r => r.gap > 0)
@@ -30,39 +33,31 @@ export default function JobPostingsPage() {
         department: 'Engineering',
         location: projectConfig?.name?.includes('Munich') ? 'Munich' : 'Munich',
         salaryBand: 'E3-E5',
-        status: 'Draft' as const,
-        description: null,
+        requiredSkills: r.requiredSkills,
       }));
-  }, [scenario, jobPostings, projectConfig]);
-
-  const selected = selectedId ? postings.find(p => p.roleId === selectedId) : postings[0];
+  }, [scenario, projectConfig]);
 
   const handleGenerateAll = async () => {
+    if (gapRoles.length === 0) {
+      toast({ title: 'No gaps', description: 'No roles with gaps to generate postings for', variant: 'destructive' });
+      return;
+    }
     setGenerating(true);
     const projectName = projectConfig?.name || 'Strategic Initiative';
     try {
-      const payload = postings.map(p => {
-        const roleConfig = scenario?.roles.find(r => r.role === p.role);
+      const result = await invokeAI<GeneratedPostings>('generate-job-postings', {
+        postings: gapRoles,
+        projectName,
+      });
+
+      const generated: JobPosting[] = gapRoles.map((p, idx) => {
+        const desc = result.postings.find(rp => rp.roleId === p.roleId) || result.postings[idx];
         return {
           roleId: p.roleId,
           role: p.role,
           department: p.department,
           location: p.location,
           salaryBand: p.salaryBand,
-          skills: roleConfig?.requiredSkills || [],
-        };
-      });
-
-      const result = await invokeAI<GeneratedPostings>('generate-job-postings', {
-        postings: payload,
-        projectName,
-      });
-
-      const generated: JobPosting[] = postings.map((p, idx) => {
-        // Match by roleId first, fallback to index position
-        const desc = result.postings.find(rp => rp.roleId === p.roleId) || result.postings[idx];
-        return {
-          ...p,
           status: 'Ready' as const,
           description: desc ? {
             opening: desc.opening,
@@ -75,10 +70,27 @@ export default function JobPostingsPage() {
       });
       setJobPostings(generated);
       markPageComplete(6);
-      toast({ title: 'AI Job Postings Generated', description: `${generated.length} postings created by AI` });
-    } catch (err) {
-      console.error('Job posting generation failed:', err);
-      toast({ title: 'Generation Failed', description: err instanceof Error ? err.message : 'Please try again', variant: 'destructive' });
+      toast({ title: 'AI Job Postings Generated', description: `${generated.length} postings created` });
+    } catch {
+      // Fallback: create postings without AI descriptions
+      const fallback: JobPosting[] = gapRoles.map(p => ({
+        roleId: p.roleId,
+        role: p.role,
+        department: p.department,
+        location: p.location,
+        salaryBand: p.salaryBand,
+        status: 'Draft' as const,
+        description: {
+          opening: `BMW Group is seeking a talented ${p.role} to join our ${projectName} initiative.`,
+          roleOverview: `As a ${p.role}, you will be instrumental in delivering key outcomes for ${projectName}. This is a high-impact role requiring expertise in ${p.requiredSkills.slice(0, 3).join(', ')}.`,
+          requiredQualifications: p.requiredSkills.map(s => `Proficiency in ${s}`),
+          preferredQualifications: ['Experience in automotive/EV industry', 'Strong communication skills in English and German'],
+          bmwOffers: 'Competitive salary, BMW Academy access, relocation support, flexible working arrangements, and the opportunity to shape the future of mobility.',
+        },
+      }));
+      setJobPostings(fallback);
+      markPageComplete(6);
+      toast({ title: 'Job Postings Created', description: `${fallback.length} postings ready for review` });
     } finally {
       setGenerating(false);
     }
@@ -102,6 +114,28 @@ export default function JobPostingsPage() {
       <div>
         <PageHeader title="Job Postings" />
         <div className="card-surface p-12 text-center"><p className="text-muted-foreground">Select a scenario on the Dashboard first.</p></div>
+      </div>
+    );
+  }
+
+  if (postings.length === 0) {
+    return (
+      <div>
+        <PageHeader title="Job Postings" subtitle="AI-generated position descriptions" />
+        <div className="card-surface p-12 text-center">
+          <FileText size={40} className="mx-auto text-muted-foreground mb-4 opacity-40" />
+          <h3 className="text-foreground font-semibold mb-1">No Job Postings Yet</h3>
+          <p className="text-sm text-muted-foreground mb-6">
+            {gapRoles.length > 0
+              ? `${gapRoles.length} roles have gaps — generate postings to start hiring`
+              : 'Fill gaps in Gap Analysis first, then generate postings here'}
+          </p>
+          {gapRoles.length > 0 && (
+            <Button onClick={handleGenerateAll} disabled={generating}>
+              <FileText size={14} className="mr-2" />{generating ? 'Generating...' : `Generate ${gapRoles.length} Job Postings`}
+            </Button>
+          )}
+        </div>
       </div>
     );
   }
