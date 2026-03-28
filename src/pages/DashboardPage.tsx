@@ -347,7 +347,35 @@ export default function DashboardPage() {
                     variant={selectedScenarioId === s.id ? 'default' : 'outline'}
                     size="sm"
                     className="mt-4 w-full"
-                    onClick={(e) => { e.stopPropagation(); selectScenario(s.id); toast({ title: 'Scenario Selected', description: s.label }); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      selectScenario(s.id);
+                      // Auto-populate roster for Scenario A/B from employee data
+                      if (s.id !== 'custom' && employees.length > 0) {
+                        // Clear existing roster first
+                        const currentRoster = useStore.getState().roster;
+                        currentRoster.forEach(id => removeFromRoster(id));
+                        // Score & assign top employees per role
+                        const assigned = new Set<string>();
+                        s.roles.forEach(role => {
+                          const scored = employees
+                            .filter(emp => !assigned.has(emp.employee_id))
+                            .map(emp => ({
+                              emp,
+                              score: calculateCompositeScore(emp, role.requiredSkills, role.requiredCerts, form.priority)
+                            }))
+                            .sort((a, b) => b.score.total - a.score.total)
+                            .slice(0, Math.min(role.headcount, role.internalAvailable));
+                          scored.forEach(({ emp }) => {
+                            assigned.add(emp.employee_id);
+                            addToRoster(emp.employee_id);
+                          });
+                        });
+                        toast({ title: 'Scenario Selected', description: `${s.label} — ${assigned.size} employees auto-assigned to roster` });
+                      } else {
+                        toast({ title: 'Scenario Selected', description: s.label });
+                      }
+                    }}
                   >
                     {selectedScenarioId === s.id ? 'Selected' : 'Select Scenario'}
                   </Button>
