@@ -15,6 +15,39 @@ import { loadBmwDatabase, generateDemoEmployees } from '@/lib/demoData';
 import Papa from 'papaparse';
 import { Employee } from '@/store/useStore';
 
+const PROJECT_PRESETS = [
+  {
+    id: 'gigafactory',
+    label: 'EV Battery Gigafactory',
+    tag: 'Munich · Critical',
+    color: 'border-l-destructive',
+    form: {
+      name: 'EV Battery Gigafactory — Munich',
+      description: 'Strategic initiative to establish a dedicated in-house battery cell production facility at our Munich campus, reducing dependency on third-party cell suppliers (CATL, Samsung SDI) and securing long-term cost competitiveness for our Neue Klasse platform. Scope includes greenfield facility buildout, production line commissioning, pilot cell validation, and integration with existing drivetrain assembly. Must align with EU Battery Regulation compliance timelines and our 2028 volume targets of 600,000+ BEV units annually.',
+      targetDeadline: 'Q3 2026',
+      budgetMin: 15000000,
+      budgetMax: 25000000,
+      priority: 'Critical' as const,
+      staffEstimate: '80–120 people, heavy engineering — need electrochemistry specialists, battery cell R&D engineers, production line automation engineers, quality assurance leads with gigafactory experience, supply chain managers for raw materials (lithium, nickel, cobalt sourcing), HSE compliance officers, and a small embedded software team for battery management system integration. Senior hires should have prior experience at CATL, Northvolt, or Tesla Grünheide.',
+    },
+  },
+  {
+    id: 'ai-copilot',
+    label: 'Connected Drive AI Copilot',
+    tag: 'Global · High',
+    color: 'border-l-primary',
+    form: {
+      name: 'Connected Drive AI Copilot — Global Rollout',
+      description: 'Launch of a next-generation in-vehicle AI assistant across the full BMW lineup, replacing the current voice command system with a multimodal copilot capable of natural conversation, proactive route optimization, real-time vehicle diagnostics, and personalized driver behavior coaching. The system must integrate with BMW\'s existing ConnectedDrive backend, iDrive 9 infotainment platform, and third-party services (Spotify, Google Maps, Microsoft 365). Phase 1 covers European and North American markets. Must meet UNECE R155 cybersecurity and GDPR data residency requirements. Target: OTA deployment to 2.4M vehicles within 6 months of launch.',
+      targetDeadline: 'Q2 2027',
+      budgetMin: 8000000,
+      budgetMax: 18000000,
+      priority: 'High' as const,
+      staffEstimate: '60–90 people, heavy software — need ML/NLP engineers with automotive LLM experience, cloud infrastructure architects (AWS/Azure), embedded systems developers for in-vehicle edge compute, UX designers specialized in voice and multimodal interaction, product managers with connected car domain expertise, data engineers for telemetry pipelines, QA engineers with automotive SPICE and ISO 26262 familiarity, and DevOps leads experienced with OTA update infrastructure at scale. Key hires should have background at Cerence, Qualcomm Ride, or comparable automotive AI vendors.',
+    },
+  },
+] as const;
+
 const roleSkillsMap: Record<string, { skills: string[]; certs: string[] }> = {
   'Battery Engineer': { skills: ['battery chemistry', 'thermal management', 'bms design', 'cell testing'], certs: ['ISO 26262', 'EV Safety Level 2'] },
   'Data Scientist': { skills: ['python', 'machine learning', 'deep learning', 'sql', 'tableau'], certs: ['AWS Certified', 'TensorFlow Certificate'] },
@@ -33,15 +66,17 @@ const roleSkillsMap: Record<string, { skills: string[]; certs: string[] }> = {
 export default function DashboardPage() {
   const { projectConfig, setProjectConfig, scenarios, setScenarios, selectScenario, selectedScenarioId, markPageComplete, employees, setEmployees, addToRoster, removeFromRoster, roster } = useStore();
   const { toast } = useToast();
+  const defaultPreset = PROJECT_PRESETS[0].form;
   const [form, setForm] = useState({
-    name: projectConfig?.name || 'EV Battery Gigafactory — Munich',
-    description: projectConfig?.description || 'Strategic initiative to establish a dedicated in-house battery cell production facility at our Munich campus, reducing dependency on third-party cell suppliers (CATL, Samsung SDI) and securing long-term cost competitiveness for our Neue Klasse platform. Scope includes greenfield facility buildout, production line commissioning, pilot cell validation, and integration with existing drivetrain assembly. Must align with EU Battery Regulation compliance timelines and our 2028 volume targets of 600,000+ BEV units annually.',
-    targetDeadline: projectConfig?.targetDeadline || 'Q3 2026',
-    budgetMin: projectConfig?.budgetMin || 15000000,
-    budgetMax: projectConfig?.budgetMax || 25000000,
-    priority: (projectConfig?.priority || 'Critical') as 'Critical' | 'High' | 'Medium' | 'Low',
-    staffEstimate: projectConfig?.staffEstimate || '80–120 people, heavy engineering — need electrochemistry specialists, battery cell R&D engineers, production line automation engineers, quality assurance leads with gigafactory experience, supply chain managers for raw materials (lithium, nickel, cobalt sourcing), HSE compliance officers, and a small embedded software team for battery management system integration. Senior hires should have prior experience at CATL, Northvolt, or Tesla Grünheide.',
+    name: projectConfig?.name || defaultPreset.name,
+    description: projectConfig?.description || defaultPreset.description,
+    targetDeadline: projectConfig?.targetDeadline || defaultPreset.targetDeadline,
+    budgetMin: projectConfig?.budgetMin || defaultPreset.budgetMin,
+    budgetMax: projectConfig?.budgetMax || defaultPreset.budgetMax,
+    priority: (projectConfig?.priority || defaultPreset.priority) as 'Critical' | 'High' | 'Medium' | 'Low',
+    staffEstimate: projectConfig?.staffEstimate || defaultPreset.staffEstimate,
   });
+  const [activePreset, setActivePreset] = useState<string>('gigafactory');
   const [generating, setGenerating] = useState(false);
   const [loadingBmw, setLoadingBmw] = useState(false);
 
@@ -333,6 +368,36 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {/* Project Presets */}
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        {PROJECT_PRESETS.map(preset => (
+          <button
+            key={preset.id}
+            onClick={() => {
+              setForm({ ...preset.form });
+              setActivePreset(preset.id);
+              toast({ title: `Loaded: ${preset.label}`, description: preset.tag });
+            }}
+            className={`text-left card-surface p-4 border-l-4 transition-all hover:ring-1 hover:ring-primary/40 ${preset.color} ${activePreset === preset.id ? 'ring-2 ring-primary' : ''}`}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-foreground leading-tight">{preset.label}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{preset.tag}</p>
+              </div>
+              {activePreset === preset.id && (
+                <span className="text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full bg-primary/10 text-primary shrink-0">Active</span>
+              )}
+            </div>
+            <div className="flex gap-3 mt-2 text-[11px] text-muted-foreground">
+              <span>📅 {preset.form.targetDeadline}</span>
+              <span>💰 €{(preset.form.budgetMax / 1_000_000).toFixed(0)}M max</span>
+              <span>👥 {preset.form.staffEstimate.split(',')[0].split('–')[1]?.split(' ')[0] || '?'} ppl est.</span>
+            </div>
+          </button>
+        ))}
+      </div>
 
       {/* Form */}
       <div className="card-surface p-6 mb-6">
