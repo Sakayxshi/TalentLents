@@ -111,8 +111,11 @@ export default function UpskillingPage() {
 
   return (
     <div>
-      <PageHeader title="Upskilling Paths" subtitle="Training plans for internal candidates">
+      <PageHeader title="Upskilling Paths" subtitle="AI-powered training plans for internal candidates">
         <div className="flex gap-2">
+          <Button size="sm" onClick={handleGenerateTrainingPaths} disabled={generatingPaths || uniqueCandidates.length === 0}>
+            <Sparkles size={14} className="mr-2" />{generatingPaths ? 'Generating...' : 'Generate AI Training Paths'}
+          </Button>
           <Button size="sm" variant={viewMode === 'card' ? 'default' : 'outline'} onClick={() => setViewMode('card')}>Cards</Button>
           <Button size="sm" variant={viewMode === 'table' ? 'default' : 'outline'} onClick={() => setViewMode('table')}>Table</Button>
         </div>
