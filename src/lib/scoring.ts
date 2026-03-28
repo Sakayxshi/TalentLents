@@ -10,7 +10,7 @@ export function calculateCompositeScore(
   employee: Employee,
   requiredSkills: string[] = [],
   requiredCerts: string[] = [],
-  priority: 'Critical' | 'High' | 'Medium' = 'High'
+  priority: 'Critical' | 'High' | 'Medium' | 'Low' = 'High'
 ): ScoreBreakdown {
   const empSkills = (employee.technical_skills || '').split(/[,;]/).map(s => s.trim().toLowerCase()).filter(Boolean);
   const empCerts = (employee.certifications || '').split(/[,;]/).map(s => s.trim().toLowerCase()).filter(Boolean);
