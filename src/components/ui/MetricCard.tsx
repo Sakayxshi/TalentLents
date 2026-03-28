@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { ReactNode, forwardRef } from 'react';
 
 interface MetricCardProps {
   label: string;
@@ -7,15 +7,18 @@ interface MetricCardProps {
   className?: string;
 }
 
-export function MetricCard({ label, value, subtitle, className = '' }: MetricCardProps) {
-  return (
-    <div className={`card-surface p-5 ${className}`}>
-      <p className="metric-label">{label}</p>
-      <p className="metric-value mt-1">{value}</p>
-      {subtitle && <p className="metric-subtitle mt-1">{subtitle}</p>}
-    </div>
-  );
-}
+export const MetricCard = forwardRef<HTMLDivElement, MetricCardProps>(
+  ({ label, value, subtitle, className = '' }, ref) => {
+    return (
+      <div ref={ref} className={`card-surface p-5 ${className}`}>
+        <p className="metric-label">{label}</p>
+        <p className="metric-value mt-1">{value}</p>
+        {subtitle && <p className="metric-subtitle mt-1">{subtitle}</p>}
+      </div>
+    );
+  }
+);
+MetricCard.displayName = 'MetricCard';
 
 export function PageHeader({ title, subtitle, children }: { title: string; subtitle?: string; children?: ReactNode }) {
   return (
@@ -29,10 +32,13 @@ export function PageHeader({ title, subtitle, children }: { title: string; subti
   );
 }
 
-export function Badge({ children, variant = 'badge-blue' }: { children: ReactNode; variant?: string }) {
-  return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${variant}`}>
-      {children}
-    </span>
-  );
-}
+export const Badge = forwardRef<HTMLSpanElement, { children: ReactNode; variant?: string }>(
+  ({ children, variant = 'badge-blue' }, ref) => {
+    return (
+      <span ref={ref} className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${variant}`}>
+        {children}
+      </span>
+    );
+  }
+);
+Badge.displayName = 'Badge';

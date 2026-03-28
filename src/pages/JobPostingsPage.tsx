@@ -58,8 +58,9 @@ export default function JobPostingsPage() {
         projectName,
       });
 
-      const generated: JobPosting[] = postings.map(p => {
-        const desc = result.postings.find(rp => rp.roleId === p.roleId);
+      const generated: JobPosting[] = postings.map((p, idx) => {
+        // Match by roleId first, fallback to index position
+        const desc = result.postings.find(rp => rp.roleId === p.roleId) || result.postings[idx];
         return {
           ...p,
           status: 'Ready' as const,
