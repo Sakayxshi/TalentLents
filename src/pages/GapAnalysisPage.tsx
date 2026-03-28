@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { PageHeader, MetricCard, Badge } from '@/components/ui/MetricCard';
-import { calculateCompositeScore, getSkillOverlap, getMissingSkills, getMatchedSkills } from '@/lib/scoring';
+import { calculateCompositeScore, getSkillOverlap, getMissingSkills, getMatchedSkills, GAP_THRESHOLDS } from '@/lib/scoring';
 import { ChevronDown, ChevronUp, Plus, Sparkles, Brain, Target } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
@@ -21,30 +21,63 @@ export default function GapAnalysisPage() {
     return roles.map(r => {
       const rostered = employees.filter(e => {
         if (!roster.includes(e.employee_id)) return false;
-        const empSkills = (e.technical_skills || '').toLowerCase();
-        const roleMatch = e.role?.toLowerCase().includes(r.role.split(' ')[0].toLowerCase());
-        const skillMatch = r.requiredSkills.some(skill => empSkills.includes(skill.toLowerCase()));
-        return roleMatch || skillMatch;
+        const empSkills = (e.technical_skills || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
+        const overlap = getSkillOverlap(empSkills, r.requiredSkills);
+        return overlap >= GAP_THRESHOLDS.INTERNAL_READY;
       });
-      const upskillable = employees
-        .filter(e => !roster.includes(e.employee_id))
-        .map(e => {
-          const empSkills = (e.technical_skills || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
-          const overlap = getSkillOverlap(empSkills, r.requiredSkills);
-          const missing = getMissingSkills(empSkills, r.requiredSkills);
-          const matched = getMatchedSkills(empSkills, r.requiredSkills);
-          const score = calculateCompositeScore(e, r.requiredSkills, r.requiredCerts);
-          return { ...e, overlap: Math.round(overlap * 100), missingSkills: missing, matchedSkills: matched, score: score.total };
-        })
-        .filter(e => e.overlap >= 40).sort((a, b) => b.overlap - a.overlap).slice(0, 5);
+
+      // Employees not on roster — split by 80%/60% thresholds
+      const notRostered = employees.filter(e => !roster.includes(e.employee_id));
+      const scoredPool = notRostered.map(e => {
+        const empSkills = (e.technical_skills || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
+        const overlap = getSkillOverlap(empSkills, r.requiredSkills);
+        const missing = getMissingSkills(empSkills, r.requiredSkills);
+        const matched = getMatchedSkills(empSkills, r.requiredSkills);
+        const score = calculateCompositeScore(e, r.requiredSkills, r.requiredCerts);
+        return { ...e, overlap, overlapPct: Math.round(overlap * 100), missingSkills: missing, matchedSkills: matched, score: score.total };
+      });
+
+      // ≥80% → internal ready (can fill directly)
+      const internalReady = scoredPool
+        .filter(e => e.overlap >= GAP_THRESHOLDS.INTERNAL_READY)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 5);
+
+      // 60–79% → upskillable (need training)
+      const upskillable = scoredPool
+        .filter(e => e.overlap >= GAP_THRESHOLDS.UPSKILLABLE && e.overlap < GAP_THRESHOLDS.INTERNAL_READY)
+        .sort((a, b) => b.overlap - a.overlap)
+        .slice(0, 5);
 
       const filled = rostered.length;
       const gap = Math.max(0, r.headcount - filled);
-      const externalNeeded = Math.max(0, gap - upskillable.length);
+      const canFillInternal = Math.min(internalReady.length, gap);
+      const canFillUpskill = Math.min(upskillable.length, Math.max(0, gap - canFillInternal));
+      const externalNeeded = Math.max(0, gap - canFillInternal - canFillUpskill);
+
       const rosteredCerts = rostered.flatMap(e => (e.certifications || '').split(/[,;]/).map(c => c.trim().toLowerCase()));
       const missingCerts = r.requiredCerts.filter(c => !rosteredCerts.some(rc => rc.includes(c.toLowerCase())));
 
-      return { ...r, filled, gap, rostered, upskillable, externalNeeded, missingCerts };
+      const fillRate = (filled + canFillInternal) / Math.max(r.headcount, 1);
+      const status = fillRate >= 1 ? 'staffed' : fillRate >= 0.5 ? 'partial' : 'critical';
+      const recommendation = externalNeeded === 0
+        ? (upskillable.length > 0 ? 'upskill' : 'internal')
+        : (canFillUpskill > 0 ? 'mixed' : 'hire_external');
+
+      return {
+        ...r,
+        filled,
+        gap,
+        rostered,
+        upskillable,
+        internalReady,
+        canFillInternal,
+        canFillUpskill,
+        externalNeeded,
+        missingCerts,
+        status,
+        recommendation,
+      };
     });
   }, [roles, employees, roster]);
 
@@ -168,7 +201,12 @@ export default function GapAnalysisPage() {
             <button onClick={() => setExpanded(expanded === r.role ? null : r.role)} className="w-full flex items-center justify-between p-4 hover:bg-secondary/30 transition-colors">
               <div className="flex items-center gap-3">
                 <h4 className="font-semibold text-foreground">{r.role}</h4>
-                <Badge variant={r.gap === 0 ? 'badge-green' : r.filled > 0 ? 'badge-amber' : 'badge-red'}>{r.gap === 0 ? 'Staffed' : `Gap: ${r.gap}`}</Badge>
+                <Badge variant={r.status === 'staffed' ? 'badge-green' : r.status === 'partial' ? 'badge-amber' : 'badge-red'}>
+                  {r.status === 'staffed' ? 'Staffed' : `Gap: ${r.gap}`}
+                </Badge>
+                {r.recommendation === 'upskill' && <Badge variant="badge-blue">Upskill</Badge>}
+                {r.recommendation === 'hire_external' && <Badge variant="badge-coral">Hire External</Badge>}
+                {r.recommendation === 'mixed' && <Badge variant="badge-amber">Mixed</Badge>}
               </div>
               <div className="flex items-center gap-4 text-xs text-muted-foreground">
                 <span>Required: {r.headcount}</span><span>Filled: {r.filled}</span>
@@ -183,9 +221,35 @@ export default function GapAnalysisPage() {
                     <div className="space-y-1">{r.rostered.map(e => (<div key={e.employee_id} className="flex justify-between text-sm px-2 py-1 rounded bg-secondary/50"><span className="text-foreground">{e.name}</span><span className="text-muted-foreground">{calculateCompositeScore(e, r.requiredSkills, r.requiredCerts).total} pts</span></div>))}</div>
                   )}
                 </div>
+                {r.internalReady.length > 0 && (
+                  <div>
+                    <h5 className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
+                      Internal Ready <span className="text-success">(≥80% match)</span>
+                    </h5>
+                    <div className="space-y-2">
+                      {r.internalReady.map(e => (
+                        <div key={e.employee_id} className="flex items-center justify-between text-sm px-2 py-2 rounded bg-success/5 border border-success/20">
+                          <div className="flex-1">
+                            <span className="text-foreground font-medium">{e.name}</span>
+                            <span className="text-muted-foreground ml-2 text-xs">({e.role})</span>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {e.matchedSkills.map(s => <span key={s} className="px-1.5 py-0 text-[10px] rounded badge-green">{s}</span>)}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs text-success font-medium">{e.overlapPct}%</span>
+                            <button onClick={() => { addToRoster(e.employee_id); markPageComplete(4); toast({ title: 'Added to Roster', description: `${e.name} is ready` }); }} className="text-primary hover:bg-primary/10 p-1 rounded"><Plus size={14} /></button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {r.upskillable.length > 0 && (
                   <div>
-                    <h5 className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Upskill Candidates</h5>
+                    <h5 className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
+                      Upskill Candidates <span className="text-warning">(60–79% match)</span>
+                    </h5>
                     <div className="space-y-2">
                       {r.upskillable.map(e => (
                         <div key={e.employee_id} className="flex items-center justify-between text-sm px-2 py-2 rounded bg-secondary/50">
@@ -197,8 +261,8 @@ export default function GapAnalysisPage() {
                             </div>
                           </div>
                           <div className="flex items-center gap-3">
-                            <span className="text-xs text-muted-foreground">{e.overlap}% match</span>
-                            <button onClick={() => { addToRoster(e.employee_id); addUpskillCandidate({ employeeId: e.employee_id, targetRole: r.role, approved: false }); markPageComplete(4); toast({ title: 'Added', description: `${e.name} added to roster & upskill` }); }} className="text-primary hover:bg-primary/10 p-1 rounded"><Plus size={14} /></button>
+                            <span className="text-xs text-muted-foreground">{e.overlapPct}% match</span>
+                            <button onClick={() => { addToRoster(e.employee_id); addUpskillCandidate({ employeeId: e.employee_id, targetRole: r.role, approved: false }); markPageComplete(4); toast({ title: 'Added', description: `${e.name} added to roster & upskill queue` }); }} className="text-primary hover:bg-primary/10 p-1 rounded"><Plus size={14} /></button>
                           </div>
                         </div>
                       ))}

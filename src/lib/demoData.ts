@@ -1,3 +1,4 @@
+import Papa from 'papaparse';
 import { Employee, ExternalCandidate } from '@/store/useStore';
 
 const departments = ['Engineering', 'Data & Analytics', 'Quality', 'Operations', 'Supply Chain', 'R&D', 'Manufacturing', 'IT'];
@@ -97,6 +98,60 @@ export function generateDemoEmployees(count: number = 100): Employee[] {
 const extCompanies = ['CATL', 'Samsung SDI', 'Continental', 'Bosch', 'Siemens', 'LG Energy Solution', 'Panasonic', 'BYD', 'SK Innovation', 'Northvolt', 'BASF', 'Infineon'];
 const extFirstNames = ['Anna', 'Thomas', 'Sarah', 'Max', 'Elena', 'Felix', 'Laura', 'Jan', 'Marie', 'David', 'Sophie', 'Paul', 'Lea', 'Tim', 'Klara', 'Nico', 'Mia', 'Lukas', 'Hannah', 'Moritz', 'Emma', 'Jonas', 'Lena', 'Ben', 'Amelie', 'Philipp', 'Charlotte', 'Simon', 'Julia', 'Niklas', 'Clara', 'Mark', 'Sophia', 'Adrian', 'Lisa'];
 const extLastNames = ['Müller', 'Weber', 'Fischer', 'Schmidt', 'Braun', 'Hoffmann', 'Wagner', 'Becker', 'Schulz', 'Krüger', 'Richter', 'Neumann', 'Schwarz', 'Zimmermann', 'Wolf', 'Schäfer', 'König', 'Peters', 'Lang', 'Frank', 'Walter', 'Baumann', 'Meier', 'Huber', 'Koch', 'Weiß', 'Hartmann', 'Keller', 'Lorenz', 'Bauer', 'Berger', 'Engel', 'Horn', 'Roth', 'Graf'];
+
+export async function loadBmwDatabase(): Promise<{
+  employees: Employee[];
+  stats: { total: number; departments: number; locations: number; skipped: number };
+}> {
+  const response = await fetch('/bmw_workforce_database.csv');
+  if (!response.ok) throw new Error('Failed to fetch BMW workforce database');
+  const csvText = await response.text();
+
+  return new Promise((resolve, reject) => {
+    Papa.parse(csvText, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        const data = results.data as Record<string, string>[];
+        const skipped = results.errors.length + data.filter(r => !r.employee_id || !r.name).length;
+        const valid = data.filter(r => r.employee_id && r.name);
+
+        const employees: Employee[] = valid.map(row => ({
+          employee_id: row.employee_id,
+          name: row.name,
+          department: row.department || '',
+          role: row.role || '',
+          location: row.location || '',
+          hire_date: row.hire_date || '',
+          years_at_company: Number(row.years_at_company) || 0,
+          manager_id: row.manager_id || '',
+          salary_band: row.salary_band || '',
+          employment_type: row.employment_type || '',
+          performance_rating: Number(row.performance_rating) || 3,
+          products_deployed: Number(row.products_deployed) || 0,
+          successful_products_deployed: Number(row.successful_products_deployed) || 0,
+          feedback_score: Number(row.feedback_score) || 3,
+          appraisal: row.appraisal || 'Meets Expectations',
+          certifications: row.certifications || '',
+          technical_skills: row.technical_skills || '',
+          education: row.education || '',
+          languages: row.languages || '',
+          flight_risk: row.flight_risk || 'Low',
+          internal_moves: Number(row.internal_moves) || 0,
+          current_project: row.current_project || '',
+          project_position: row.project_position || '',
+          peer_feedback_score: Number(row.peer_feedback_score) || 3,
+        }));
+
+        const departments = new Set(employees.map(e => e.department)).size;
+        const locations = new Set(employees.map(e => e.location)).size;
+
+        resolve({ employees, stats: { total: employees.length, departments, locations, skipped } });
+      },
+      error: (err) => reject(new Error(err.message)),
+    });
+  });
+}
 
 export function generateExternalCandidates(targetRoles: string[]): ExternalCandidate[] {
   const rand = seededRandom(123);

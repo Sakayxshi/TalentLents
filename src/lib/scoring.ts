@@ -138,7 +138,123 @@ export function getMatchedSkills(empSkills: string[], requiredSkills: string[]):
   return requiredSkills.filter(s => empLower.some(es => es.includes(s.toLowerCase()) || s.toLowerCase().includes(es)));
 }
 
-// Salary band utilities
+// ─── External Candidate Scoring ──────────────────────────────────────────────
+
+export type RankingMode = 'best_overall' | 'fastest' | 'lowest_cost' | 'long_term';
+
+export interface ExternalCandidateScore {
+  composite: number;
+  breakdown: {
+    skillMatch: number;
+    experienceRelevance: number;
+    certificationMatch: number;
+    educationFit: number;
+    salaryFit: number;
+    availability: number;
+  };
+}
+
+const RANKING_WEIGHTS: Record<RankingMode, ExternalCandidateScore['breakdown']> = {
+  best_overall: { skillMatch: 0.30, experienceRelevance: 0.20, certificationMatch: 0.15, educationFit: 0.10, salaryFit: 0.15, availability: 0.10 },
+  fastest:      { skillMatch: 0.20, experienceRelevance: 0.15, certificationMatch: 0.10, educationFit: 0.05, salaryFit: 0.10, availability: 0.40 },
+  lowest_cost:  { skillMatch: 0.25, experienceRelevance: 0.15, certificationMatch: 0.10, educationFit: 0.10, salaryFit: 0.35, availability: 0.05 },
+  long_term:    { skillMatch: 0.25, experienceRelevance: 0.30, certificationMatch: 0.20, educationFit: 0.15, salaryFit: 0.05, availability: 0.05 },
+};
+
+export function scoreExternalCandidate(
+  candidateSkills: string,
+  candidateYearsExp: number,
+  candidateCertifications: string,
+  candidateEducation: string,
+  candidateCompany: string,
+  candidateRole: string,
+  candidateSalaryExpectation: number,
+  candidateNoticePeriodWeeks: number,
+  requiredSkills: string[],
+  requiredCerts: string[],
+  salaryBandMax: number,
+  mode: RankingMode = 'best_overall'
+): ExternalCandidateScore {
+  const skills = candidateSkills.split(/[,;]/).map(s => s.trim().toLowerCase()).filter(Boolean);
+  const certs = candidateCertifications.split(/[,;]/).map(s => s.trim().toLowerCase()).filter(Boolean);
+
+  // Skill Match
+  const matchedSkills = requiredSkills.filter(req =>
+    skills.some(s => s.includes(req.toLowerCase()) || req.toLowerCase().includes(s))
+  );
+  const skillMatch = requiredSkills.length > 0
+    ? (matchedSkills.length / requiredSkills.length) * 100
+    : 60;
+
+  // Experience Relevance — automotive/EV context boosts score
+  const automotiveKeywords = ['bmw', 'mercedes', 'volkswagen', 'tesla', 'automotive', 'ev', 'battery', 'bosch', 'continental', 'siemens'];
+  const isAutomotive = automotiveKeywords.some(kw =>
+    candidateCompany.toLowerCase().includes(kw) || candidateRole.toLowerCase().includes(kw)
+  );
+  const baseExp = Math.min(100, (candidateYearsExp / 12) * 100);
+  const experienceRelevance = Math.min(100, isAutomotive ? baseExp * 1.3 : baseExp);
+
+  // Certification Match
+  const matchedCerts = requiredCerts.filter(req =>
+    certs.some(c => c.includes(req.toLowerCase()) || req.toLowerCase().includes(c))
+  );
+  const certificationMatch = requiredCerts.length > 0
+    ? (matchedCerts.length / requiredCerts.length) * 100
+    : 70;
+
+  // Education Fit
+  const eduKeywords = ['engineering', 'computer science', 'physics', 'chemistry', 'materials', 'informatik', 'maschinenbau'];
+  const educationFit = eduKeywords.some(kw => candidateEducation.toLowerCase().includes(kw))
+    ? (candidateEducation.toLowerCase().includes('phd') || candidateEducation.toLowerCase().includes('msc') ? 95 : 80)
+    : 55;
+
+  // Salary Fit
+  let salaryFit: number;
+  if (candidateSalaryExpectation <= salaryBandMax) {
+    salaryFit = 100;
+  } else if (candidateSalaryExpectation <= salaryBandMax * 1.1) {
+    salaryFit = 70;
+  } else {
+    salaryFit = Math.max(20, 100 - ((candidateSalaryExpectation - salaryBandMax) / salaryBandMax) * 200);
+  }
+
+  // Availability (based on notice period)
+  const availability =
+    candidateNoticePeriodWeeks === 0 ? 100 :
+    candidateNoticePeriodWeeks <= 4 ? 80 :
+    candidateNoticePeriodWeeks <= 8 ? 60 : 35;
+
+  const weights = RANKING_WEIGHTS[mode];
+  const composite = Math.round(
+    skillMatch * weights.skillMatch +
+    experienceRelevance * weights.experienceRelevance +
+    certificationMatch * weights.certificationMatch +
+    educationFit * weights.educationFit +
+    salaryFit * weights.salaryFit +
+    availability * weights.availability
+  );
+
+  return {
+    composite: Math.min(100, Math.max(0, composite)),
+    breakdown: {
+      skillMatch: Math.round(skillMatch),
+      experienceRelevance: Math.round(experienceRelevance),
+      certificationMatch: Math.round(certificationMatch),
+      educationFit: Math.round(educationFit),
+      salaryFit: Math.round(salaryFit),
+      availability: Math.round(availability),
+    },
+  };
+}
+
+// ─── Gap Analysis Thresholds ──────────────────────────────────────────────────
+
+export const GAP_THRESHOLDS = {
+  INTERNAL_READY: 0.80,  // 80%+ skill match → can fill role directly
+  UPSKILLABLE: 0.60,     // 60–79% skill match → needs training
+};
+
+// ─── Salary band utilities
 export const SALARY_BAND_MIDPOINTS: Record<string, number> = {
   'E1': 45000, 'E2': 55000, 'E3': 65000, 'E4': 78000, 'E5': 92000,
   'T1': 38000, 'T2': 48000, 'T3': 58000,

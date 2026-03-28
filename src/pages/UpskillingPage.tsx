@@ -2,14 +2,15 @@ import { useMemo, useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { PageHeader, MetricCard, Badge } from '@/components/ui/MetricCard';
 import { Button } from '@/components/ui/button';
-import { CheckCircle2, X, ArrowRight, Sparkles } from 'lucide-react';
+import { CheckCircle2, X, ArrowRight, Sparkles, RotateCcw } from 'lucide-react';
 import { getSkillOverlap, getMissingSkills, getMatchedSkills } from '@/lib/scoring';
 import { useToast } from '@/hooks/use-toast';
 import { invokeAI, GeneratedTrainingPaths } from '@/lib/aiService';
+import { buildTrainingPath, getSkillsAfterTraining } from '@/lib/bmw-training-catalogue';
 
 
 export default function UpskillingPage() {
-  const { employees, upskillCandidates, addUpskillCandidate, approveUpskill, removeUpskillCandidate, roster, scenarios, selectedScenarioId, setUpskillTrainingPath, markPageComplete } = useStore();
+  const { employees, upskillCandidates, completedTrainings, addUpskillCandidate, approveUpskill, removeUpskillCandidate, roster, scenarios, selectedScenarioId, setUpskillTrainingPath, completeTraining, markPageComplete } = useStore();
   const { toast } = useToast();
   const [viewMode, setViewMode] = useState<'card' | 'table'>('card');
   const [generatingPaths, setGeneratingPaths] = useState(false);
@@ -31,11 +32,15 @@ export default function UpskillingPage() {
 
           // Use AI-generated training path if available, otherwise show placeholder
           const aiPath = aiTrainingPaths[e.employee_id];
+          // Fallback: build path from BMW catalogue if no AI path yet
+          const cataloguePath = buildTrainingPath(missing);
           const trainingPath = aiPath?.courses.map(c => ({
             course: c.course, duration: c.duration, cost: c.cost, method: c.method, coversSkills: c.coversSkills,
-          })) || [];
-          const totalCost = aiPath?.totalCost || 0;
-          const totalWeeks = aiPath?.totalWeeks || 0;
+          })) || cataloguePath.courses.map(c => ({
+            course: c.name, duration: `${c.duration_weeks}w`, cost: c.cost_eur, method: c.delivery, coversSkills: c.skillsGranted,
+          }));
+          const totalCost = aiPath?.totalCost ?? cataloguePath.totalCost;
+          const totalWeeks = aiPath?.totalWeeks ?? cataloguePath.totalWeeks;
 
           return {
             ...e,
@@ -146,8 +151,9 @@ export default function UpskillingPage() {
             <tbody>
               {uniqueCandidates.map(c => {
                 const isApproved = upskillCandidates.some(u => u.employeeId === c.employee_id && u.approved);
+                const isCompleted = completedTrainings.includes(c.employee_id);
                 return (
-                  <tr key={c.employee_id} className="border-b border-border hover:bg-secondary/30">
+                  <tr key={c.employee_id} className={`border-b border-border hover:bg-secondary/30 ${isCompleted ? 'opacity-60' : ''}`}>
                     <td className="p-3 text-foreground font-medium">{c.name}</td>
                     <td className="p-3 text-muted-foreground">{c.role}</td>
                     <td className="p-3 text-foreground">{c.targetRole}</td>
@@ -156,17 +162,33 @@ export default function UpskillingPage() {
                     <td className="p-3 text-foreground">€{c.totalCost.toLocaleString()}</td>
                     <td className="p-3"><Badge variant={c.flight_risk?.toLowerCase() === 'high' ? 'badge-red' : c.flight_risk?.toLowerCase() === 'medium' ? 'badge-amber' : 'badge-green'}>{c.flight_risk}</Badge></td>
                     <td className="p-3">
-                      <Button size="sm" variant={isApproved ? 'outline' : 'default'} onClick={() => {
-                        if (!isApproved) {
-                          addUpskillCandidate({ employeeId: c.employee_id, targetRole: c.targetRole, approved: true, trainingPath: c.trainingPath, totalCost: c.totalCost, totalWeeks: c.totalWeeks });
-                          markPageComplete(5);
-                          toast({ title: 'Approved', description: `${c.name} approved for upskilling` });
-                        } else {
-                          removeUpskillCandidate(c.employee_id);
-                        }
-                      }}>
-                        {isApproved ? 'Approved ✓' : 'Approve'}
-                      </Button>
+                      {isCompleted ? (
+                        <span className="text-xs text-success font-medium flex items-center gap-1"><CheckCircle2 size={12} />Done</span>
+                      ) : (
+                        <div className="flex gap-1">
+                          <Button size="sm" variant={isApproved ? 'outline' : 'default'} onClick={() => {
+                            if (!isApproved) {
+                              addUpskillCandidate({ employeeId: c.employee_id, targetRole: c.targetRole, approved: true, trainingPath: c.trainingPath, totalCost: c.totalCost, totalWeeks: c.totalWeeks });
+                              markPageComplete(5);
+                              toast({ title: 'Approved', description: `${c.name} approved for upskilling` });
+                            } else {
+                              removeUpskillCandidate(c.employee_id);
+                            }
+                          }}>
+                            {isApproved ? 'Approved ✓' : 'Approve'}
+                          </Button>
+                          {isApproved && (
+                            <Button size="sm" variant="outline" className="text-success border-success/40" onClick={() => {
+                              const emp = employees.find(e2 => e2.employee_id === c.employee_id);
+                              if (!emp) return;
+                              const cataloguePath = buildTrainingPath(c.missingSkills);
+                              const newSkills = getSkillsAfterTraining(emp.technical_skills, cataloguePath.courses);
+                              completeTraining(c.employee_id, newSkills);
+                              toast({ title: '✓ Complete', description: `${c.name} skills updated` });
+                            }}>✓</Button>
+                          )}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );
@@ -178,8 +200,9 @@ export default function UpskillingPage() {
         <div className="grid grid-cols-2 gap-4">
           {uniqueCandidates.map(c => {
             const isApproved = upskillCandidates.some(u => u.employeeId === c.employee_id && u.approved);
+            const isCompleted = completedTrainings.includes(c.employee_id);
             return (
-              <div key={c.employee_id} className="card-surface p-5 animate-fade-in-up">
+              <div key={c.employee_id} className={`card-surface p-5 animate-fade-in-up ${isCompleted ? 'opacity-75 border-success/30' : ''}`}>
                 <div className="flex justify-between items-start mb-3">
                   <div>
                     <h4 className="font-semibold text-foreground">{c.name}</h4>
@@ -226,18 +249,41 @@ export default function UpskillingPage() {
                 </div>
 
                 <div className="flex gap-2">
-                  <Button size="sm" variant={isApproved ? 'outline' : 'default'} className="flex-1" onClick={() => {
-                    if (!isApproved) {
-                      addUpskillCandidate({ employeeId: c.employee_id, targetRole: c.targetRole, approved: true, trainingPath: c.trainingPath, totalCost: c.totalCost, totalWeeks: c.totalWeeks });
-                      markPageComplete(5);
-                      toast({ title: 'Approved', description: `${c.name} approved for upskilling` });
-                    } else {
-                      removeUpskillCandidate(c.employee_id);
-                    }
-                  }}>
-                    {isApproved ? <><CheckCircle2 size={14} className="mr-1" /> Approved</> : 'Approve'}
-                  </Button>
-                  <Button size="sm" variant="ghost" className="text-destructive" onClick={() => { removeUpskillCandidate(c.employee_id); toast({ title: 'Removed' }); }}><X size={14} /></Button>
+                  {isCompleted ? (
+                    <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded bg-success/10 border border-success/30">
+                      <CheckCircle2 size={14} className="text-success" />
+                      <span className="text-xs text-success font-medium">Training Complete — Gap Analysis Updated</span>
+                      <RotateCcw size={12} className="text-success ml-auto" />
+                    </div>
+                  ) : (
+                    <>
+                      <Button size="sm" variant={isApproved ? 'outline' : 'default'} className="flex-1" onClick={() => {
+                        if (!isApproved) {
+                          addUpskillCandidate({ employeeId: c.employee_id, targetRole: c.targetRole, approved: true, trainingPath: c.trainingPath, totalCost: c.totalCost, totalWeeks: c.totalWeeks });
+                          markPageComplete(5);
+                          toast({ title: 'Approved', description: `${c.name} approved for upskilling` });
+                        } else {
+                          removeUpskillCandidate(c.employee_id);
+                        }
+                      }}>
+                        {isApproved ? <><CheckCircle2 size={14} className="mr-1" /> Approved</> : 'Approve'}
+                      </Button>
+                      {isApproved && (
+                        <Button size="sm" variant="outline" className="text-success border-success/40 hover:bg-success/10" onClick={() => {
+                          // LOOP: update employee skills → gap analysis recalculates automatically
+                          const emp = employees.find(e2 => e2.employee_id === c.employee_id);
+                          if (!emp) return;
+                          const cataloguePath = buildTrainingPath(c.missingSkills);
+                          const newSkills = getSkillsAfterTraining(emp.technical_skills, cataloguePath.courses);
+                          completeTraining(c.employee_id, newSkills);
+                          toast({ title: '✓ Training Completed', description: `${c.name}'s skills updated — Gap Analysis recalculated` });
+                        }}>
+                          <CheckCircle2 size={13} className="mr-1" />Mark Complete
+                        </Button>
+                      )}
+                      <Button size="sm" variant="ghost" className="text-destructive" onClick={() => { removeUpskillCandidate(c.employee_id); toast({ title: 'Removed' }); }}><X size={14} /></Button>
+                    </>
+                  )}
                 </div>
               </div>
             );

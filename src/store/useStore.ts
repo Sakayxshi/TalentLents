@@ -138,11 +138,13 @@ interface AppState {
   addToRoster: (employeeId: string) => void;
   removeFromRoster: (employeeId: string) => void;
 
+  completedTrainings: string[];  // employeeIds whose training is done
   upskillCandidates: UpskillCandidate[];
   addUpskillCandidate: (candidate: UpskillCandidate) => void;
   approveUpskill: (employeeId: string) => void;
   removeUpskillCandidate: (employeeId: string) => void;
   setUpskillTrainingPath: (employeeId: string, path: TrainingStep[], totalCost: number, totalWeeks: number) => void;
+  completeTraining: (employeeId: string, newSkills: string) => void; // LOOP: updates employee skills → Gap Analysis recalculates
 
   externalCandidates: ExternalCandidate[];
   shortlistedCandidates: string[];
@@ -185,6 +187,7 @@ export const useStore = create<AppState>((set) => ({
     roster: s.roster.filter(id => id !== employeeId)
   })),
 
+  completedTrainings: [],
   upskillCandidates: [],
   addUpskillCandidate: (candidate) => set((s) => ({
     upskillCandidates: s.upskillCandidates.some(c => c.employeeId === candidate.employeeId)
@@ -203,6 +206,20 @@ export const useStore = create<AppState>((set) => ({
     upskillCandidates: s.upskillCandidates.map(c =>
       c.employeeId === employeeId ? { ...c, trainingPath: path, totalCost, totalWeeks } : c
     )
+  })),
+  // LOOP: marks training complete + updates employee skills so Gap Analysis recalculates
+  completeTraining: (employeeId, newSkills) => set((s) => ({
+    completedTrainings: s.completedTrainings.includes(employeeId)
+      ? s.completedTrainings
+      : [...s.completedTrainings, employeeId],
+    employees: s.employees.map(e =>
+      e.employee_id === employeeId
+        ? { ...e, technical_skills: newSkills }
+        : e
+    ),
+    upskillCandidates: s.upskillCandidates.map(c =>
+      c.employeeId === employeeId ? { ...c, approved: false } : c
+    ),
   })),
 
   externalCandidates: [],

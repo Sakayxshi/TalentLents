@@ -5,7 +5,7 @@ import { PageHeader } from '@/components/ui/MetricCard';
 import { Upload, CheckCircle2, Database, ChevronDown, ChevronUp } from 'lucide-react';
 import Papa from 'papaparse';
 import { Button } from '@/components/ui/button';
-import { generateDemoEmployees } from '@/lib/demoData';
+import { generateDemoEmployees, loadBmwDatabase } from '@/lib/demoData';
 import { useToast } from '@/hooks/use-toast';
 
 const expectedColumns = [
@@ -46,6 +46,7 @@ export default function UploadPage() {
   const { setEmployees, uploadStats, markPageComplete } = useStore();
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadingBmw, setLoadingBmw] = useState(false);
   const { toast } = useToast();
 
   const handleFile = useCallback((file: File) => {
@@ -106,6 +107,21 @@ export default function UploadPage() {
     toast({ title: 'Demo Data Loaded', description: '100 sample BMW employees loaded' });
   };
 
+  const handleLoadBmwDatabase = async () => {
+    setLoadingBmw(true);
+    setError(null);
+    try {
+      const { employees, stats } = await loadBmwDatabase();
+      setEmployees(employees, stats);
+      markPageComplete(1);
+      toast({ title: 'BMW Database Loaded', description: `${stats.total} employees from BMW workforce database` });
+    } catch {
+      setError('Failed to load BMW workforce database.');
+    } finally {
+      setLoadingBmw(false);
+    }
+  };
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
@@ -143,10 +159,14 @@ export default function UploadPage() {
           <p className="text-sm text-muted-foreground mt-2">Supports .csv files</p>
         </div>
 
-        {/* Demo button */}
+        {/* Quick load buttons */}
         {!uploadStats && (
-          <div className="mt-4 text-center">
-            <Button variant="outline" onClick={handleLoadDemo}>
+          <div className="mt-4 flex flex-col gap-2 items-center">
+            <Button onClick={handleLoadBmwDatabase} disabled={loadingBmw} className="w-full max-w-sm">
+              <Database size={16} className="mr-2" />
+              {loadingBmw ? 'Loading...' : 'Load BMW Database (800 Employees)'}
+            </Button>
+            <Button variant="outline" onClick={handleLoadDemo} className="w-full max-w-sm">
               <Database size={16} className="mr-2" />
               Load Demo Data (100 Employees)
             </Button>

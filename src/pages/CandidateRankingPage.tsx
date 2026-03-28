@@ -1,14 +1,22 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useStore, ExternalCandidate } from '@/store/useStore';
 import { PageHeader, MetricCard, Badge } from '@/components/ui/MetricCard';
 import { Button } from '@/components/ui/button';
-import { getScoreColor, calculateCompositeScore, getSkillOverlap } from '@/lib/scoring';
-import { Star, X, GitCompare, Sparkles, Brain } from 'lucide-react';
+import { getScoreColor, scoreExternalCandidate, RankingMode, SALARY_BAND_MIDPOINTS } from '@/lib/scoring';
+import { Star, X, GitCompare, Sparkles, Brain, Upload } from 'lucide-react';
 import { generateExternalCandidates } from '@/lib/demoData';
 import { useToast } from '@/hooks/use-toast';
 import { invokeAI, CandidateEvaluations } from '@/lib/aiService';
+import Papa from 'papaparse';
 
 type SortMode = 'best' | 'fast' | 'cost' | 'long';
+
+const SORT_TO_RANKING: Record<SortMode, RankingMode> = {
+  best: 'best_overall',
+  fast: 'fastest',
+  cost: 'lowest_cost',
+  long: 'long_term',
+};
 
 export default function CandidateRankingPage() {
   const { shortlistedCandidates, shortlistCandidate, unshortlistCandidate, externalCandidates, setExternalCandidates, scenarios, selectedScenarioId, markPageComplete, projectConfig } = useStore();
@@ -19,26 +27,72 @@ export default function CandidateRankingPage() {
   const scenario = scenarios.find(s => s.id === selectedScenarioId);
   const positions = useMemo(() => scenario?.roles.filter(r => r.gap > 0).map(r => r.role) || [], [scenario]);
 
+  const scoreCandidates = useCallback((candidates: ExternalCandidate[], mode: RankingMode): ExternalCandidate[] => {
+    return candidates.map(c => {
+      const role = scenario?.roles.find(r => r.role === c.targetRole);
+      const salaryBandMax = SALARY_BAND_MIDPOINTS[role ? 'E4' : 'E4'] * 1.1;
+      const result = scoreExternalCandidate(
+        c.technical_skills || '',
+        c.years_experience,
+        c.certifications || '',
+        c.education || '',
+        c.current_company,
+        c.current_role,
+        c.salary_expectation,
+        c.notice_period_weeks,
+        role?.requiredSkills || [],
+        role?.requiredCerts || [],
+        salaryBandMax,
+        mode
+      );
+      return { ...c, composite_score: result.composite, skill_match: result.breakdown.skillMatch };
+    });
+  }, [scenario]);
+
   useEffect(() => {
     if (externalCandidates.length === 0 && positions.length > 0) {
       const candidates = generateExternalCandidates(positions);
-      const scored = candidates.map(c => {
-        const role = scenario?.roles.find(r => r.role === c.targetRole);
-        const candidateSkills = (c.technical_skills || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
-        const skillMatch = role ? Math.round(getSkillOverlap(candidateSkills, role.requiredSkills) * 100) : 50;
-        const baseScore = Math.round(
-          skillMatch * 0.3 +
-          Math.min(c.years_experience / 15, 1) * 100 * 0.2 +
-          (c.certifications ? 70 : 30) * 0.15 +
-          (c.education?.includes('M.Sc') || c.education?.includes('Ph.D') ? 80 : 60) * 0.1 +
-          (c.notice_period_weeks <= 4 ? 90 : c.notice_period_weeks <= 8 ? 70 : 50) * 0.1 +
-          60 * 0.15
-        );
-        return { ...c, composite_score: Math.min(100, Math.max(20, baseScore)), skill_match: skillMatch };
-      });
-      setExternalCandidates(scored);
+      setExternalCandidates(scoreCandidates(candidates, 'best_overall'));
     }
-  }, [externalCandidates.length, positions, scenario, setExternalCandidates]);
+  }, [externalCandidates.length, positions, scoreCandidates, setExternalCandidates]);
+
+  const handleCsvUpload = useCallback(() => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.csv';
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (results) => {
+          const rows = results.data as Record<string, string>[];
+          const parsed: ExternalCandidate[] = rows
+            .filter(r => r.name)
+            .map((r, i) => ({
+              id: `csv-${i}-${Date.now()}`,
+              name: r.name || '',
+              current_company: r.current_company || r.company || '',
+              current_role: r.current_role || r.role || '',
+              targetRole: r.target_role || r.targetRole || positions[0] || '',
+              years_experience: Number(r.years_experience || r.years_exp) || 0,
+              education: r.education || '',
+              technical_skills: r.technical_skills || r.skills || '',
+              certifications: r.certifications || '',
+              languages: r.languages || '',
+              salary_expectation: Number(r.salary_expectation || r.salary) || 70000,
+              notice_period_weeks: Number(r.notice_period_weeks || r.notice_period) || 8,
+              portfolio_summary: r.portfolio_summary || '',
+              location: r.location || '',
+            }));
+          setExternalCandidates(scoreCandidates(parsed, SORT_TO_RANKING[sortMode]));
+          toast({ title: 'Candidates Uploaded', description: `${parsed.length} external candidates loaded` });
+        },
+      });
+    };
+    input.click();
+  }, [positions, scoreCandidates, setExternalCandidates, sortMode, toast]);
 
   const [selectedPosition, setSelectedPosition] = useState('');
   const [sortMode, setSortMode] = useState<SortMode>('best');
@@ -49,14 +103,11 @@ export default function CandidateRankingPage() {
   }, [positions, selectedPosition]);
 
   const candidates = useMemo(() => {
-    let filtered = externalCandidates.filter(c => c.targetRole === selectedPosition);
-    switch (sortMode) {
-      case 'fast': return [...filtered].sort((a, b) => a.notice_period_weeks - b.notice_period_weeks);
-      case 'cost': return [...filtered].sort((a, b) => a.salary_expectation - b.salary_expectation);
-      case 'long': return [...filtered].sort((a, b) => b.years_experience - a.years_experience);
-      default: return [...filtered].sort((a, b) => (b.composite_score || 0) - (a.composite_score || 0));
-    }
-  }, [externalCandidates, selectedPosition, sortMode]);
+    const filtered = externalCandidates.filter(c => c.targetRole === selectedPosition);
+    // Re-score with current mode weights, then sort by composite score
+    const rescored = scoreCandidates(filtered, SORT_TO_RANKING[sortMode]);
+    return [...rescored].sort((a, b) => (b.composite_score || 0) - (a.composite_score || 0));
+  }, [externalCandidates, selectedPosition, sortMode, scoreCandidates]);
 
   const handleAiAnalyze = async () => {
     if (!selectedPosition || candidates.length === 0) return;
@@ -111,8 +162,11 @@ export default function CandidateRankingPage() {
     <div>
       <PageHeader title="Candidate Ranking" subtitle="Evaluate and compare external candidates">
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleCsvUpload}>
+            <Upload size={14} className="mr-2" />Upload CSV
+          </Button>
           <Button size="sm" onClick={handleAiAnalyze} disabled={loadingAi || candidates.length === 0}>
-            <Sparkles size={14} className="mr-2" />{loadingAi ? 'Analyzing...' : aiEvals ? 'Re-Analyze' : 'AI Evaluate Candidates'}
+            <Sparkles size={14} className="mr-2" />{loadingAi ? 'Analyzing...' : aiEvals ? 'Re-Analyze' : 'AI Evaluate'}
           </Button>
           <Button variant="outline" size="sm" onClick={() => setCompareIds([])} disabled={compareIds.length === 0}>
             <GitCompare size={14} className="mr-2" />Compare ({compareIds.length})
