@@ -64,7 +64,7 @@ ${existingRisks.join('\n')}`;
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: "openai/gpt-5.2",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
