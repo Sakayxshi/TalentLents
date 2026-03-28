@@ -81,7 +81,7 @@ function getProsCons(id: string, projectName: string): { pros: string[]; cons: s
 }
 
 export default function DashboardPage() {
-  const { projectConfig, setProjectConfig, scenarios, setScenarios, selectScenario, selectedScenarioId, markPageComplete, employees } = useStore();
+  const { projectConfig, setProjectConfig, scenarios, setScenarios, selectScenario, selectedScenarioId, markPageComplete, employees, addToRoster, removeFromRoster } = useStore();
   const { toast } = useToast();
   const [form, setForm] = useState({
     name: projectConfig?.name || '',
