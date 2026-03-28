@@ -94,7 +94,8 @@ export default function DashboardPage() {
     staffEstimate: projectConfig?.staffEstimate || '',
   });
   const [generating, setGenerating] = useState(false);
-  const [expandedProsConsId, setExpandedProsConsId] = useState<string | null>(null);
+  const [customSearch, setCustomSearch] = useState('');
+  const [customRoleFilter, setCustomRoleFilter] = useState('All');
 
   // Compute estimated auto-assign count per scenario
   const scenarioAssignCounts = useMemo(() => {
