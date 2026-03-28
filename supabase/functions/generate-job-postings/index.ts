@@ -5,6 +5,17 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+function sanitize(obj: unknown): unknown {
+  if (typeof obj === "string") return obj.replace(/[^\x00-\x7F\u00C0-\u024F\u1E00-\u1EFF€£¥°±×÷]/g, "").trim();
+  if (Array.isArray(obj)) return obj.map(sanitize);
+  if (obj && typeof obj === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj)) out[k] = sanitize(v);
+    return out;
+  }
+  return obj;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -22,12 +33,13 @@ For each role provided, create a complete job posting with:
 - preferredQualifications: 4 nice-to-have qualifications
 - bmwOffers: A compelling paragraph about BMW's employee value proposition
 
-Make each posting unique and tailored to the specific role. Use professional BMW corporate tone.`;
+Make each posting unique and tailored to the specific role. Use professional BMW corporate tone.
+IMPORTANT: The roleId in your output MUST exactly match the roleId provided in the input for each role. Use only ASCII characters.`;
 
     const userPrompt = `Project: ${projectName}
 
 Generate job postings for these roles:
-${postings.map((p: any, i: number) => `${i + 1}. ${p.role} (${p.department}, ${p.location}, ${p.salaryBand}) - Required skills: ${p.skills?.join(', ') || 'N/A'}`).join('\n')}`;
+${postings.map((p: any, i: number) => `${i + 1}. roleId="${p.roleId}" — ${p.role} (${p.department}, ${p.location}, ${p.salaryBand}) - Required skills: ${p.skills?.join(', ') || 'N/A'}`).join('\n')}`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -97,7 +109,8 @@ ${postings.map((p: any, i: number) => `${i + 1}. ${p.role} (${p.department}, ${p
     const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
     if (!toolCall) throw new Error("No tool call in response");
 
-    const result = JSON.parse(toolCall.function.arguments);
+    const raw = JSON.parse(toolCall.function.arguments);
+    const result = sanitize(raw);
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

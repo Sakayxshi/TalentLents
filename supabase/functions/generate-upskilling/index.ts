@@ -5,6 +5,17 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+function sanitize(obj: unknown): unknown {
+  if (typeof obj === "string") return obj.replace(/[^\x00-\x7F\u00C0-\u024F\u1E00-\u1EFF€£¥°±×÷]/g, "").trim();
+  if (Array.isArray(obj)) return obj.map(sanitize);
+  if (obj && typeof obj === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj)) out[k] = sanitize(v);
+    return out;
+  }
+  return obj;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -24,7 +35,8 @@ Each course should have:
 - method: "Online", "In-person", or "Hybrid"
 - coversSkills: Array of skills this course addresses
 
-Consider the employee's existing skills and target role requirements when designing paths.`;
+Consider the employee's existing skills and target role requirements when designing paths.
+IMPORTANT: The employeeId in your output MUST exactly match the employeeId provided in the input. Use only ASCII characters.`;
 
     const userPrompt = `Generate training paths for these upskilling candidates:
 
@@ -115,7 +127,8 @@ ${candidates.map((c: any, i: number) => `${i + 1}. ${c.name} (ID: ${c.employeeId
     const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
     if (!toolCall) throw new Error("No tool call in response");
 
-    const result = JSON.parse(toolCall.function.arguments);
+    const raw = JSON.parse(toolCall.function.arguments);
+    const result = sanitize(raw);
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

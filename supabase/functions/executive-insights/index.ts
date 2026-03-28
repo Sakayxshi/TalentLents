@@ -5,6 +5,17 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+function sanitize(obj: unknown): unknown {
+  if (typeof obj === "string") return obj.replace(/[^\x00-\x7F\u00C0-\u024F\u1E00-\u1EFF€£¥°±×÷]/g, "").trim();
+  if (Array.isArray(obj)) return obj.map(sanitize);
+  if (obj && typeof obj === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj)) out[k] = sanitize(v);
+    return out;
+  }
+  return obj;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -21,7 +32,7 @@ Provide:
 - An executive narrative paragraph (3-4 sentences) summarizing the workforce readiness situation
 - A confidence assessment of the plan
 
-Be specific, data-driven, and actionable. Reference actual numbers from the data provided.`;
+Be specific, data-driven, and actionable. Reference actual numbers from the data provided. Use only ASCII characters.`;
 
     const userPrompt = `Project: ${projectConfig.name}
 Priority: ${projectConfig.priority}
@@ -116,7 +127,8 @@ ${existingRisks.join('\n')}`;
     const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
     if (!toolCall) throw new Error("No tool call in response");
 
-    const result = JSON.parse(toolCall.function.arguments);
+    const raw = JSON.parse(toolCall.function.arguments);
+    const result = sanitize(raw);
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

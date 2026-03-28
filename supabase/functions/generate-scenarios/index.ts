@@ -5,6 +5,18 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+// Strip non-ASCII garbage characters that the model sometimes injects
+function sanitize(obj: unknown): unknown {
+  if (typeof obj === "string") return obj.replace(/[^\x00-\x7F\u00C0-\u024F\u1E00-\u1EFF€£¥°±×÷]/g, "").trim();
+  if (Array.isArray(obj)) return obj.map(sanitize);
+  if (obj && typeof obj === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj)) out[k] = sanitize(v);
+    return out;
+  }
+  return obj;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -30,7 +42,8 @@ Rules:
 - Timeline should be in format "X months"
 - Provide 3-4 pros and cons per scenario
 - Label should be a creative name based on the project (e.g., "Full-Scale Launch", "Phased Rollout")
-- Rationale should be 1-2 sentences explaining the scenario`;
+- Rationale should be 1-2 sentences explaining the scenario
+- IMPORTANT: Use only standard ASCII characters. Do not include any special Unicode characters or symbols.`;
 
     const userPrompt = `Project: ${projectConfig.name}
 Description: ${projectConfig.description || 'Not provided'}
@@ -132,7 +145,8 @@ Employee Data Summary:
     const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
     if (!toolCall) throw new Error("No tool call in response");
 
-    const result = JSON.parse(toolCall.function.arguments);
+    const raw = JSON.parse(toolCall.function.arguments);
+    const result = sanitize(raw);
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
