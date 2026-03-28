@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '@/store/useStore';
 import { PageHeader } from '@/components/ui/MetricCard';
-import { Upload, CheckCircle2, Database } from 'lucide-react';
+import { Upload, CheckCircle2, Database, ChevronDown, ChevronUp } from 'lucide-react';
 import Papa from 'papaparse';
 import { Button } from '@/components/ui/button';
 import { generateDemoEmployees } from '@/lib/demoData';
@@ -133,16 +133,7 @@ export default function UploadPage() {
           <div className="mt-4 p-3 badge-red rounded-lg text-sm">{error}</div>
         )}
 
-        <div className="mt-6">
-          <p className="text-xs text-muted-foreground mb-3 uppercase tracking-wider font-medium">Expected Columns</p>
-          <div className="flex flex-wrap gap-1.5">
-            {expectedColumns.map(col => (
-              <span key={col} className="px-2 py-1 text-xs rounded-md bg-secondary text-secondary-foreground font-mono">
-                {col}
-              </span>
-            ))}
-          </div>
-        </div>
+        <ExpectedColumnsCollapsible />
 
         {uploadStats && (
           <div className="mt-8 card-surface p-6 animate-fade-in-up">
