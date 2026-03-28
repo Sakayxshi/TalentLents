@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '@/store/useStore';
 import { PageHeader } from '@/components/ui/MetricCard';
-import { Upload, CheckCircle2, Database } from 'lucide-react';
+import { Upload, CheckCircle2, Database, ChevronDown, ChevronUp } from 'lucide-react';
 import Papa from 'papaparse';
 import { Button } from '@/components/ui/button';
 import { generateDemoEmployees } from '@/lib/demoData';
@@ -16,6 +16,30 @@ const expectedColumns = [
   'education', 'languages', 'flight_risk', 'internal_moves',
   'current_project', 'project_position', 'peer_feedback_score'
 ];
+
+function ExpectedColumnsCollapsible() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-6">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider font-medium hover:text-foreground transition-colors"
+      >
+        Expected Columns
+        {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+      </button>
+      {open && (
+        <div className="flex flex-wrap gap-1.5 mt-3 animate-fade-in-up">
+          {expectedColumns.map(col => (
+            <span key={col} className="px-2 py-1 text-xs rounded-md bg-secondary text-secondary-foreground font-mono">
+              {col}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function UploadPage() {
   const navigate = useNavigate();
@@ -133,16 +157,7 @@ export default function UploadPage() {
           <div className="mt-4 p-3 badge-red rounded-lg text-sm">{error}</div>
         )}
 
-        <div className="mt-6">
-          <p className="text-xs text-muted-foreground mb-3 uppercase tracking-wider font-medium">Expected Columns</p>
-          <div className="flex flex-wrap gap-1.5">
-            {expectedColumns.map(col => (
-              <span key={col} className="px-2 py-1 text-xs rounded-md bg-secondary text-secondary-foreground font-mono">
-                {col}
-              </span>
-            ))}
-          </div>
-        </div>
+        <ExpectedColumnsCollapsible />
 
         {uploadStats && (
           <div className="mt-8 card-surface p-6 animate-fade-in-up">

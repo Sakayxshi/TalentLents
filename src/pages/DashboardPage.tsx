@@ -27,9 +27,6 @@ const roleSkillsMap: Record<string, { skills: string[]; certs: string[] }> = {
   'Materials Scientist': { skills: ['xrd', 'sem', 'polymer science', 'nanomaterials'], certs: ['Materials Science Professional'] },
 };
 
-
-
-
 export default function DashboardPage() {
   const { projectConfig, setProjectConfig, scenarios, setScenarios, selectScenario, selectedScenarioId, markPageComplete, employees, addToRoster, removeFromRoster, roster } = useStore();
   const { toast } = useToast();
@@ -39,7 +36,7 @@ export default function DashboardPage() {
     targetDeadline: projectConfig?.targetDeadline || 'Q3 2026',
     budgetMin: projectConfig?.budgetMin || 15000000,
     budgetMax: projectConfig?.budgetMax || 25000000,
-    priority: (projectConfig?.priority || 'Critical') as 'Critical' | 'High' | 'Medium',
+    priority: (projectConfig?.priority || 'Critical') as 'Critical' | 'High' | 'Medium' | 'Low',
     staffEstimate: projectConfig?.staffEstimate || '',
   });
   const [generating, setGenerating] = useState(false);
@@ -76,7 +73,6 @@ export default function DashboardPage() {
     setProjectConfig(form);
 
     try {
-      // Build employee summary for AI
       const departments = [...new Set(employees.map(e => e.department))];
       const topRoles = [...new Set(employees.map(e => e.role))].slice(0, 10);
       const locations = [...new Set(employees.map(e => e.location))];
@@ -89,17 +85,12 @@ export default function DashboardPage() {
         employeeSummary: { total: employees.length, departments, topRoles, locations, avgPerformance },
       });
 
-      // Map AI response to app format, computing internalAvailable from actual employee data
       const scenarioData: Scenario[] = result.scenarios.map(s => ({
         ...s,
         roles: s.roles.map(r => {
           const avail = computeInternalAvailable(r.role, r.requiredSkills);
           const internalAvailable = Math.min(avail, r.headcount);
-          return {
-            ...r,
-            internalAvailable,
-            gap: Math.max(0, r.headcount - internalAvailable),
-          };
+          return { ...r, internalAvailable, gap: Math.max(0, r.headcount - internalAvailable) };
         }),
       }));
 
@@ -128,6 +119,31 @@ export default function DashboardPage() {
     });
     setScenarios(updated);
   }, [scenarios, setScenarios, computeInternalAvailable]);
+
+  const handleSelectScenario = (s: Scenario) => {
+    selectScenario(s.id);
+    toast({ title: 'Scenario Selected', description: s.label });
+  };
+
+  const handleSelectAndAssign = (s: Scenario) => {
+    selectScenario(s.id);
+    if (s.id !== 'custom' && employees.length > 0) {
+      const currentRoster = useStore.getState().roster;
+      currentRoster.forEach(id => removeFromRoster(id));
+      const assigned = new Set<string>();
+      s.roles.forEach(role => {
+        const scored = employees
+          .filter(emp => !assigned.has(emp.employee_id))
+          .map(emp => ({ emp, score: calculateCompositeScore(emp, role.requiredSkills, role.requiredCerts, form.priority) }))
+          .sort((a, b) => b.score.total - a.score.total)
+          .slice(0, Math.min(role.headcount, role.internalAvailable));
+        scored.forEach(({ emp }) => { assigned.add(emp.employee_id); addToRoster(emp.employee_id); });
+      });
+      toast({ title: 'Scenario Selected & Assigned', description: `${s.label} — ${assigned.size} employees auto-assigned` });
+    } else {
+      toast({ title: 'Scenario Selected', description: s.label });
+    }
+  };
 
   const selectedScenario = scenarios.find(s => s.id === selectedScenarioId);
 
@@ -190,7 +206,12 @@ export default function DashboardPage() {
     };
   }, [selectedScenario, employees]);
 
-  const riskColors: Record<string, string> = { Low: 'badge-green', Medium: 'badge-amber', High: 'badge-red' };
+  const priorityOptions = [
+    { value: 'Critical' as const, color: 'bg-red-900 text-red-100 border-red-800' },
+    { value: 'High' as const, color: 'bg-destructive/80 text-destructive-foreground border-destructive' },
+    { value: 'Medium' as const, color: 'bg-yellow-600/80 text-yellow-100 border-yellow-600' },
+    { value: 'Low' as const, color: 'bg-green-600/80 text-green-100 border-green-600' },
+  ];
 
   return (
     <div>
@@ -239,11 +260,11 @@ export default function DashboardPage() {
           </div>
           <div>
             <Label>Priority Level</Label>
-            <div className="flex gap-3 mt-2">
-              {(['Critical','High','Medium'] as const).map(p => (
-                <label key={p} className="flex items-center gap-2 cursor-pointer">
-                  <input type="radio" name="priority" checked={form.priority === p} onChange={() => setForm({ ...form, priority: p })} className="accent-primary" />
-                  <span className="text-sm text-foreground">{p}</span>
+            <div className="flex flex-col gap-2 mt-2">
+              {priorityOptions.map(p => (
+                <label key={p.value} className="flex items-center gap-3 cursor-pointer">
+                  <input type="radio" name="priority" checked={form.priority === p.value} onChange={() => setForm({ ...form, priority: p.value })} className="accent-primary" />
+                  <span className={`text-xs font-medium px-2.5 py-1 rounded border ${p.color}`}>{p.value}</span>
                 </label>
               ))}
             </div>
@@ -262,7 +283,7 @@ export default function DashboardPage() {
       {/* Scenarios */}
       {scenarios.length > 0 && (
         <>
-          <div className="grid grid-cols-3 gap-4 mb-6">
+          <div className="grid grid-cols-3 gap-4 mb-8">
             {scenarios.map(s => (
               <div key={s.id} className="space-y-0">
                 <div
@@ -275,7 +296,6 @@ export default function DashboardPage() {
                       <h3 className="text-lg font-bold text-foreground">{s.label}</h3>
                     </div>
                     <div className="flex items-center gap-2">
-                      {s.risk !== 'None' && <Badge variant={riskColors[s.risk]}>{s.risk} Risk</Badge>}
                       {s.id !== 'custom' && (expandedProsConsId === s.id ? <ChevronUp size={16} className="text-muted-foreground" /> : <ChevronDown size={16} className="text-muted-foreground" />)}
                     </div>
                   </div>
@@ -284,7 +304,7 @@ export default function DashboardPage() {
                     <div className="flex justify-between"><span className="text-muted-foreground">Cost</span><span className="text-foreground font-medium">{s.costEstimate}</span></div>
                     <div className="flex justify-between"><span className="text-muted-foreground">Timeline</span><span className="text-foreground font-medium">{s.timeline}</span></div>
                   </div>
-                  {/* Roster assignment indicator */}
+                  {/* Roster assignment indicator with total/assigned */}
                   {s.id !== 'custom' && (
                     <div className="mt-3 flex items-center gap-2 rounded-lg bg-primary/5 border border-primary/10 px-3 py-2">
                       <Users size={14} className="text-primary shrink-0" />
@@ -293,9 +313,12 @@ export default function DashboardPage() {
                           <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
                             {s.id === selectedScenarioId ? 'Assigned' : 'Est. Internal'}
                           </span>
-                          <span className="text-sm font-bold text-primary">{scenarioAssignCounts[s.id] || 0}</span>
+                          <span className="text-sm font-bold">
+                            <span className="text-primary">{scenarioAssignCounts[s.id] || 0}</span>
+                            <span className="text-muted-foreground"> / {s.totalHeadcount}</span>
+                          </span>
                         </div>
-                        <div className="h-1 bg-secondary rounded-full mt-1 overflow-hidden">
+                        <div className="h-1.5 bg-muted rounded-full mt-1 overflow-hidden">
                           <div
                             className="h-full bg-primary rounded-full transition-all duration-500"
                             style={{ width: `${s.totalHeadcount > 0 ? Math.min(100, ((scenarioAssignCounts[s.id] || 0) / s.totalHeadcount) * 100) : 0}%` }}
@@ -304,37 +327,31 @@ export default function DashboardPage() {
                       </div>
                     </div>
                   )}
-                  <Button
-                    variant={selectedScenarioId === s.id ? 'default' : 'outline'}
-                    size="sm"
-                    className="mt-3 w-full"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      selectScenario(s.id);
-                      if (s.id !== 'custom' && employees.length > 0) {
-                        const currentRoster = useStore.getState().roster;
-                        currentRoster.forEach(id => removeFromRoster(id));
-                        const assigned = new Set<string>();
-                        s.roles.forEach(role => {
-                          const scored = employees
-                            .filter(emp => !assigned.has(emp.employee_id))
-                            .map(emp => ({ emp, score: calculateCompositeScore(emp, role.requiredSkills, role.requiredCerts, form.priority) }))
-                            .sort((a, b) => b.score.total - a.score.total)
-                            .slice(0, Math.min(role.headcount, role.internalAvailable));
-                          scored.forEach(({ emp }) => { assigned.add(emp.employee_id); addToRoster(emp.employee_id); });
-                        });
-                        toast({ title: 'Scenario Selected', description: `${s.label} — ${assigned.size} employees auto-assigned to roster` });
-                      } else {
-                        toast({ title: 'Scenario Selected', description: s.label });
-                      }
-                    }}
-                  >
-                    {selectedScenarioId === s.id ? 'Selected' : 'Select Scenario'}
-                  </Button>
+                  <div className="flex gap-2 mt-3">
+                    <Button
+                      variant={selectedScenarioId === s.id ? 'default' : 'outline'}
+                      size="sm"
+                      className="flex-1"
+                      onClick={(e) => { e.stopPropagation(); handleSelectScenario(s); }}
+                    >
+                      {selectedScenarioId === s.id ? 'Selected' : 'Select Scenario'}
+                    </Button>
+                    {s.id !== 'custom' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1"
+                        onClick={(e) => { e.stopPropagation(); handleSelectAndAssign(s); }}
+                      >
+                        <UserPlus size={14} className="mr-1" />
+                        Select & Assign
+                      </Button>
+                    )}
+                  </div>
                 </div>
 
                 {expandedProsConsId === s.id && s.pros.length > 0 && (
-                  <div className="card-surface rounded-t-none border-t-0 p-4 space-y-3">
+                  <div className="card-surface rounded-t-none border-t-0 p-4 space-y-3 mt-3">
                     <div>
                       <p className="text-xs font-semibold text-success uppercase tracking-wider mb-2">Pros</p>
                       <ul className="space-y-1.5">
@@ -358,7 +375,7 @@ export default function DashboardPage() {
                   </div>
                 )}
                 {expandedProsConsId === s.id && s.id === 'custom' && (
-                  <div className="card-surface rounded-t-none border-t-0 p-4">
+                  <div className="card-surface rounded-t-none border-t-0 p-4 mt-3">
                     <p className="text-xs text-muted-foreground italic">Configure role headcounts below to define your custom scenario.</p>
                   </div>
                 )}
@@ -366,211 +383,235 @@ export default function DashboardPage() {
             ))}
           </div>
 
-          {/* AI Overview — only for A/B */}
-          {selectedScenarioId && selectedScenario && selectedScenarioId !== 'custom' && (
-            <div className="card-surface p-5 mb-6">
-              <div className="flex items-center gap-2 mb-3">
-                <Brain size={18} className="text-primary" />
-                <h3 className="font-semibold text-foreground">AI Project Analysis</h3>
-              </div>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                Based on the "{selectedScenario.label}" scenario for {form.name || 'this project'}, the team requires{' '}
-                <span className="text-foreground font-medium">{selectedScenario.totalHeadcount}</span> professionals across{' '}
-                <span className="text-foreground font-medium">{selectedScenario.roles.length}</span> roles. Currently,{' '}
-                <span className="text-foreground font-medium">{selectedScenario.roles.reduce((s, r) => s + r.internalAvailable, 0)}</span> positions
-                ({selectedScenario.totalHeadcount > 0 ? Math.round(selectedScenario.roles.reduce((s, r) => s + r.internalAvailable, 0) / selectedScenario.totalHeadcount * 100) : 0}%)
-                can be filled internally, leaving a gap of{' '}
-                <span className="text-foreground font-medium">{selectedScenario.roles.reduce((s, r) => s + r.gap, 0)}</span> positions.
-                {bottomCards.criticalGaps > 0 && (
-                  <> Critical shortages exist in <span className="text-destructive font-medium">{bottomCards.criticalRoles}</span> — these roles have over 50% unfilled capacity.</>
-                )}
-              </p>
-            </div>
-          )}
-
-          {/* Role Breakdown with Save */}
+          {/* Everything below only shows after selecting a scenario */}
           {selectedScenarioId && selectedScenario && (
-            <div className="card-surface p-5 mb-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <Pencil size={15} className="text-muted-foreground" />
-                  <h3 className="font-semibold text-foreground">Role Breakdown</h3>
-                  <span className="text-xs text-muted-foreground ml-1">— edit headcount to model different strategies</span>
+            <>
+              {/* AI Overview — only for A/B */}
+              {selectedScenarioId !== 'custom' && (
+                <div className="card-surface p-5 mb-6">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Brain size={18} className="text-primary" />
+                    <h3 className="font-semibold text-foreground">AI Project Analysis</h3>
+                  </div>
+                  <p className="text-sm text-muted-foreground leading-relaxed mb-3">
+                    Based on the "{selectedScenario.label}" scenario for {form.name || 'this project'}, the team requires{' '}
+                    <span className="text-foreground font-medium">{selectedScenario.totalHeadcount}</span> professionals across{' '}
+                    <span className="text-foreground font-medium">{selectedScenario.roles.length}</span> roles. Currently,{' '}
+                    <span className="text-foreground font-medium">{selectedScenario.roles.reduce((s, r) => s + r.internalAvailable, 0)}</span> positions
+                    ({selectedScenario.totalHeadcount > 0 ? Math.round(selectedScenario.roles.reduce((s, r) => s + r.internalAvailable, 0) / selectedScenario.totalHeadcount * 100) : 0}%)
+                    can be filled internally, leaving a gap of{' '}
+                    <span className="text-foreground font-medium">{selectedScenario.roles.reduce((s, r) => s + r.gap, 0)}</span> positions.
+                  </p>
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Required Positions</p>
+                    <ul className="space-y-1.5">
+                      {selectedScenario.roles.map(r => (
+                        <li key={r.role} className="flex items-start gap-2 text-sm text-muted-foreground">
+                          <span className="text-primary mt-0.5">•</span>
+                          <span><span className="text-foreground font-medium">{r.role}</span> — {r.headcount} needed, {r.internalAvailable} available internally{r.gap > 0 && <span className="text-destructive"> (gap: {r.gap})</span>}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  {bottomCards.criticalGaps > 0 && (
+                    <p className="text-sm text-destructive mt-3">
+                      Critical shortages in: {bottomCards.criticalRoles} — these roles have over 50% unfilled capacity.
+                    </p>
+                  )}
                 </div>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    markPageComplete(2);
-                    toast({ title: 'Distribution Saved', description: `${selectedScenario.totalHeadcount} total across ${selectedScenario.roles.length} roles` });
-                  }}
-                >
-                  <Save size={14} className="mr-1.5" />
-                  Save Distribution
-                </Button>
-              </div>
-              <div className="grid grid-cols-4 gap-3">
-                {selectedScenario.roles.map((r, idx) => (
-                  <div key={r.role} className="bg-secondary rounded-lg p-3">
-                    <p className="text-sm font-medium text-foreground truncate">{r.role}</p>
-                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-2">
-                      <span>Need:</span>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        value={r.headcount}
-                        onChange={e => {
-                          const val = parseInt(e.target.value, 10);
-                          handleRoleHeadcountChange(selectedScenarioId, idx, isNaN(val) ? 0 : val);
-                        }}
-                        className="w-12 bg-background border border-border rounded px-1.5 py-0.5 text-xs text-foreground text-center focus:outline-none focus:ring-1 focus:ring-primary"
-                      />
-                    </div>
-                    {r.gap > 0 && <p className="text-xs text-destructive mt-1">Gap: {r.gap}</p>}
-                    {r.requiredSkills.length > 0 && (
-                      <div className="flex flex-wrap gap-0.5 mt-2">
-                        {r.requiredSkills.slice(0, 3).map(s => <span key={s} className="px-1 py-0 text-[9px] rounded bg-primary/10 text-primary">{s}</span>)}
+              )}
+
+              {/* Role Breakdown with Save */}
+              <div className="card-surface p-5 mb-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <Pencil size={15} className="text-muted-foreground" />
+                    <h3 className="font-semibold text-foreground">Role Breakdown</h3>
+                    <span className="text-xs text-muted-foreground ml-1">— edit headcount to model different strategies</span>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      markPageComplete(2);
+                      toast({ title: 'Distribution Saved', description: `${selectedScenario.totalHeadcount} total across ${selectedScenario.roles.length} roles` });
+                    }}
+                  >
+                    <Save size={14} className="mr-1.5" />
+                    Save Distribution
+                  </Button>
+                </div>
+                <div className="grid grid-cols-4 gap-3">
+                  {selectedScenario.roles.map((r, idx) => (
+                    <div key={r.role} className="bg-secondary rounded-lg p-3">
+                      <p className="text-sm font-medium text-foreground truncate">{r.role}</p>
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-2">
+                        <span>Need:</span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          value={r.headcount}
+                          onChange={e => {
+                            const val = parseInt(e.target.value, 10);
+                            handleRoleHeadcountChange(selectedScenarioId, idx, isNaN(val) ? 0 : val);
+                          }}
+                          className="w-12 bg-background border border-border rounded px-1.5 py-0.5 text-xs text-foreground text-center focus:outline-none focus:ring-1 focus:ring-primary"
+                        />
                       </div>
+                      {r.gap > 0 && <p className="text-xs text-destructive mt-1">Gap: {r.gap}</p>}
+                      {r.requiredSkills.length > 0 && (
+                        <div className="flex flex-wrap gap-0.5 mt-2">
+                          {r.requiredSkills.slice(0, 3).map(s => <span key={s} className="px-1 py-0 text-[9px] rounded bg-primary/10 text-primary">{s}</span>)}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 flex justify-between text-sm border-t border-border pt-3">
+                  <span className="text-muted-foreground font-medium">Total</span>
+                  <span className="text-foreground font-bold">{selectedScenario.totalHeadcount} people</span>
+                </div>
+              </div>
+
+              {/* Manual Employee Assignment for Scenario C */}
+              {selectedScenarioId === 'custom' && employees.length > 0 && (
+                <div className="card-surface p-5 mb-6">
+                  <div className="flex items-center gap-2 mb-4">
+                    <UserPlus size={16} className="text-primary" />
+                    <h3 className="font-semibold text-foreground">Assign Employees to Roster</h3>
+                    <span className="text-xs text-muted-foreground ml-1">— search and add team members manually</span>
+                    {roster.length > 0 && (
+                      <span className="ml-auto text-xs font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                        {roster.length} assigned
+                      </span>
                     )}
                   </div>
-                ))}
-              </div>
-              <div className="mt-3 flex justify-between text-sm border-t border-border pt-3">
-                <span className="text-muted-foreground font-medium">Total</span>
-                <span className="text-foreground font-bold">{selectedScenario.totalHeadcount} people</span>
-              </div>
-            </div>
-          )}
-
-          {/* Manual Employee Assignment for Scenario C */}
-          {selectedScenarioId === 'custom' && employees.length > 0 && (
-            <div className="card-surface p-5 mb-6">
-              <div className="flex items-center gap-2 mb-4">
-                <UserPlus size={16} className="text-primary" />
-                <h3 className="font-semibold text-foreground">Assign Employees to Roster</h3>
-                <span className="text-xs text-muted-foreground ml-1">— search and add team members manually</span>
-                {roster.length > 0 && (
-                  <span className="ml-auto text-xs font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">
-                    {roster.length} assigned
-                  </span>
-                )}
-              </div>
-              <div className="flex gap-3 mb-4">
-                <div className="relative flex-1">
-                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                  <Input placeholder="Search by name, skills, or department..." value={customSearch} onChange={e => setCustomSearch(e.target.value)} className="pl-9 h-9 text-sm" />
+                  <div className="flex gap-3 mb-4">
+                    <div className="relative flex-1">
+                      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <Input placeholder="Search by name, skills, or department..." value={customSearch} onChange={e => setCustomSearch(e.target.value)} className="pl-9 h-9 text-sm" />
+                    </div>
+                    <select value={customRoleFilter} onChange={e => setCustomRoleFilter(e.target.value)} className="h-9 rounded-lg bg-secondary border border-border px-3 text-xs text-foreground">
+                      <option value="All">All Roles</option>
+                      {[...new Set(employees.map(e => e.role))].sort().map(r => (
+                        <option key={r} value={r}>{r}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <ScrollArea className="h-[320px]">
+                    <div className="space-y-1.5 pr-3">
+                      {employees
+                        .filter(emp => {
+                          const search = customSearch.toLowerCase();
+                          const matchesSearch = !search || emp.name.toLowerCase().includes(search) || (emp.technical_skills || '').toLowerCase().includes(search) || emp.department.toLowerCase().includes(search) || emp.role.toLowerCase().includes(search);
+                          const matchesRole = customRoleFilter === 'All' || emp.role === customRoleFilter;
+                          return matchesSearch && matchesRole;
+                        })
+                        .slice(0, 50)
+                        .map(emp => {
+                          const isOnRoster = roster.includes(emp.employee_id);
+                          const allSkills = selectedScenario?.roles.flatMap(r => r.requiredSkills) || [];
+                          const score = calculateCompositeScore(emp, allSkills, [], form.priority);
+                          return (
+                            <div key={emp.employee_id} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors ${isOnRoster ? 'bg-primary/8 border border-primary/15' : 'bg-secondary/50 border border-transparent hover:bg-secondary'}`}>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-medium text-foreground truncate">{emp.name}</span>
+                                  {isOnRoster && <span className="text-[10px] font-medium uppercase tracking-wider text-primary bg-primary/10 px-1.5 py-0.5 rounded">Rostered</span>}
+                                </div>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  <span className="text-xs text-muted-foreground">{emp.role}</span>
+                                  <span className="text-[10px] text-muted-foreground/60">•</span>
+                                  <span className="text-xs text-muted-foreground">{emp.department}</span>
+                                </div>
+                              </div>
+                              <div className="text-right shrink-0 mr-2">
+                                <span className={`text-sm font-bold ${score.total >= 80 ? 'text-success' : score.total >= 60 ? 'text-warning' : 'text-destructive'}`}>{score.total}</span>
+                                <p className="text-[10px] text-muted-foreground">score</p>
+                              </div>
+                              <Button variant={isOnRoster ? 'outline' : 'default'} size="sm" className="h-7 w-7 p-0 shrink-0" onClick={() => {
+                                if (isOnRoster) { removeFromRoster(emp.employee_id); toast({ title: 'Removed', description: `${emp.name} removed from roster` }); }
+                                else { addToRoster(emp.employee_id); toast({ title: 'Added', description: `${emp.name} added to roster` }); }
+                              }}>
+                                {isOnRoster ? <Minus size={14} /> : <Plus size={14} />}
+                              </Button>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </ScrollArea>
                 </div>
-                <select value={customRoleFilter} onChange={e => setCustomRoleFilter(e.target.value)} className="h-9 rounded-lg bg-secondary border border-border px-3 text-xs text-foreground">
-                  <option value="All">All Roles</option>
-                  {[...new Set(employees.map(e => e.role))].sort().map(r => (
-                    <option key={r} value={r}>{r}</option>
-                  ))}
-                </select>
-              </div>
-              <ScrollArea className="h-[320px]">
-                <div className="space-y-1.5 pr-3">
-                  {employees
-                    .filter(emp => {
-                      const search = customSearch.toLowerCase();
-                      const matchesSearch = !search || emp.name.toLowerCase().includes(search) || (emp.technical_skills || '').toLowerCase().includes(search) || emp.department.toLowerCase().includes(search) || emp.role.toLowerCase().includes(search);
-                      const matchesRole = customRoleFilter === 'All' || emp.role === customRoleFilter;
-                      return matchesSearch && matchesRole;
-                    })
-                    .slice(0, 50)
-                    .map(emp => {
-                      const isOnRoster = roster.includes(emp.employee_id);
-                      const allSkills = selectedScenario?.roles.flatMap(r => r.requiredSkills) || [];
-                      const score = calculateCompositeScore(emp, allSkills, [], form.priority);
+              )}
+
+              {/* Team Competency + Gap Analysis */}
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                <div className="card-surface p-5">
+                  <h3 className="font-semibold text-foreground mb-4">Team Competency Estimate</h3>
+                  <ResponsiveContainer width="100%" height={280}>
+                    <RadarChart data={radarData}>
+                      <PolarGrid stroke="rgba(255,255,255,0.06)" />
+                      <PolarAngleAxis dataKey="subject" tick={{ fill: 'hsl(215,12%,52%)', fontSize: 11 }} />
+                      <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
+                      <Radar name="Team" dataKey="A" stroke="hsl(205,100%,45%)" fill="hsl(205,100%,35%)" fillOpacity={0.25} strokeWidth={2} />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="card-surface p-5">
+                  <h3 className="font-semibold text-foreground mb-4">Gap Analysis Preview</h3>
+                  <div className="space-y-3">
+                    {(selectedScenario?.roles || []).slice(0, 6).map(r => {
+                      const filledPct = (r.internalAvailable / Math.max(r.headcount, 1)) * 100;
+                      const externalPct = (r.gap / Math.max(r.headcount, 1)) * 100;
                       return (
-                        <div key={emp.employee_id} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors ${isOnRoster ? 'bg-primary/8 border border-primary/15' : 'bg-secondary/50 border border-transparent hover:bg-secondary'}`}>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-medium text-foreground truncate">{emp.name}</span>
-                              {isOnRoster && <span className="text-[10px] font-medium uppercase tracking-wider text-primary bg-primary/10 px-1.5 py-0.5 rounded">Rostered</span>}
-                            </div>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <span className="text-xs text-muted-foreground">{emp.role}</span>
-                              <span className="text-[10px] text-muted-foreground/60">•</span>
-                              <span className="text-xs text-muted-foreground">{emp.department}</span>
-                            </div>
+                        <div key={r.role}>
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="text-muted-foreground">{r.role}</span>
+                            <span className="text-muted-foreground">{r.internalAvailable}/{r.headcount}</span>
                           </div>
-                          <div className="text-right shrink-0 mr-2">
-                            <span className={`text-sm font-bold ${score.total >= 80 ? 'text-success' : score.total >= 60 ? 'text-warning' : 'text-destructive'}`}>{score.total}</span>
-                            <p className="text-[10px] text-muted-foreground">score</p>
+                          <div className="h-3 bg-muted rounded-full overflow-hidden flex">
+                            <div className="bg-primary h-full" style={{ width: `${filledPct}%` }} />
+                            {r.gap > 0 && <div className="bg-destructive h-full" style={{ width: `${externalPct}%` }} />}
                           </div>
-                          <Button variant={isOnRoster ? 'outline' : 'default'} size="sm" className="h-7 w-7 p-0 shrink-0" onClick={() => {
-                            if (isOnRoster) { removeFromRoster(emp.employee_id); toast({ title: 'Removed', description: `${emp.name} removed from roster` }); }
-                            else { addToRoster(emp.employee_id); toast({ title: 'Added', description: `${emp.name} added to roster` }); }
-                          }}>
-                            {isOnRoster ? <Minus size={14} /> : <Plus size={14} />}
-                          </Button>
                         </div>
                       );
                     })}
-                </div>
-              </ScrollArea>
-            </div>
-          )}
-
-          {/* Team Competency + Gap Analysis — after Role Breakdown */}
-          <div className="grid grid-cols-2 gap-4 mb-6">
-            <div className="card-surface p-5">
-              <h3 className="font-semibold text-foreground mb-4">Team Competency Estimate</h3>
-              <ResponsiveContainer width="100%" height={280}>
-                <RadarChart data={radarData}>
-                  <PolarGrid stroke="rgba(255,255,255,0.06)" />
-                  <PolarAngleAxis dataKey="subject" tick={{ fill: 'hsl(215,12%,52%)', fontSize: 11 }} />
-                  <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
-                  <Radar name="Team" dataKey="A" stroke="hsl(205,100%,45%)" fill="hsl(205,100%,35%)" fillOpacity={0.25} strokeWidth={2} />
-                </RadarChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="card-surface p-5">
-              <h3 className="font-semibold text-foreground mb-4">Gap Analysis Preview</h3>
-              <div className="space-y-3">
-                {(selectedScenario?.roles || []).slice(0, 6).map(r => (
-                  <div key={r.role}>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-muted-foreground">{r.role}</span>
-                      <span className="text-muted-foreground">{r.headcount} needed</span>
-                    </div>
-                    <div className="h-3 bg-secondary rounded-full overflow-hidden flex">
-                      <div className="bg-primary h-full rounded-l-full" style={{ width: `${(r.internalAvailable / Math.max(r.headcount, 1)) * 100}%` }} />
-                      {r.gap > 0 && <div className="bg-destructive h-full" style={{ width: `${(r.gap / Math.max(r.headcount, 1)) * 100}%` }} />}
-                    </div>
                   </div>
-                ))}
+                  <div className="flex gap-4 mt-3 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1"><span className="w-3 h-3 bg-primary rounded" /> On Roster</span>
+                    <span className="flex items-center gap-1"><span className="w-3 h-3 bg-destructive rounded" /> External Hire</span>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
 
-          {/* Bottom summary cards */}
-          <div className="grid grid-cols-3 gap-4">
-            <div className="card-surface p-5">
-              <div className="flex items-center gap-2 mb-3">
-                <AlertTriangle className="text-destructive" size={18} />
-                <h4 className="font-semibold text-foreground text-sm">Critical Gaps</h4>
+              {/* Bottom summary cards */}
+              <div className="grid grid-cols-3 gap-4">
+                <div className="card-surface p-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <AlertTriangle className="text-destructive" size={18} />
+                    <h4 className="font-semibold text-foreground text-sm">Critical Gaps</h4>
+                  </div>
+                  <p className="metric-value text-destructive">{bottomCards.criticalGaps}</p>
+                  <p className="text-xs text-muted-foreground mt-2">{bottomCards.criticalRoles || 'No critical gaps'}</p>
+                </div>
+                <div className="card-surface p-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <TrendingUp className="text-warning" size={18} />
+                    <h4 className="font-semibold text-foreground text-sm">Upskill Candidates</h4>
+                  </div>
+                  <p className="metric-value text-warning">{bottomCards.upskillCount}</p>
+                  <p className="text-xs text-muted-foreground mt-2">Avg skill match: {bottomCards.avgSkillMatch}%</p>
+                </div>
+                <div className="card-surface p-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Users className="text-score-amber" size={18} />
+                    <h4 className="font-semibold text-foreground text-sm">Flight Risk Alerts</h4>
+                  </div>
+                  <p className="metric-value text-score-amber">{bottomCards.flightRiskCount}</p>
+                  <p className="text-xs text-muted-foreground mt-2">{bottomCards.flightRiskNames || 'No high-risk employees'}</p>
+                </div>
               </div>
-              <p className="metric-value text-destructive">{bottomCards.criticalGaps}</p>
-              <p className="text-xs text-muted-foreground mt-2">{bottomCards.criticalRoles || 'No critical gaps'}</p>
-            </div>
-            <div className="card-surface p-5">
-              <div className="flex items-center gap-2 mb-3">
-                <TrendingUp className="text-warning" size={18} />
-                <h4 className="font-semibold text-foreground text-sm">Upskill Candidates</h4>
-              </div>
-              <p className="metric-value text-warning">{bottomCards.upskillCount}</p>
-              <p className="text-xs text-muted-foreground mt-2">Avg skill match: {bottomCards.avgSkillMatch}%</p>
-            </div>
-            <div className="card-surface p-5">
-              <div className="flex items-center gap-2 mb-3">
-                <Users className="text-score-amber" size={18} />
-                <h4 className="font-semibold text-foreground text-sm">Flight Risk Alerts</h4>
-              </div>
-              <p className="metric-value text-score-amber">{bottomCards.flightRiskCount}</p>
-              <p className="text-xs text-muted-foreground mt-2">{bottomCards.flightRiskNames || 'No high-risk employees'}</p>
-            </div>
-          </div>
+            </>
+          )}
         </>
       )}
     </div>

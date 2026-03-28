@@ -58,7 +58,7 @@ export interface ProjectConfig {
   targetDeadline: string;
   budgetMin: number;
   budgetMax: number;
-  priority: 'Critical' | 'High' | 'Medium';
+  priority: 'Critical' | 'High' | 'Medium' | 'Low';
   staffEstimate: string;
 }
 
