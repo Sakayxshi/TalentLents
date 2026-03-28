@@ -1,15 +1,14 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useStore, PageId } from '@/store/useStore';
 import {
-  Upload, LayoutDashboard, Users, BarChart3, GraduationCap,
+  LayoutDashboard, Users, BarChart3, GraduationCap,
   FileText, Trophy, DollarSign, Calendar, FileOutput,
   ChevronLeft, ChevronRight, CheckCircle2
 } from 'lucide-react';
 import { useState } from 'react';
 
 const pages = [
-  { id: 1 as PageId, label: 'Upload Database', icon: Upload, path: '/' },
-  { id: 2 as PageId, label: 'Project Dashboard', icon: LayoutDashboard, path: '/dashboard' },
+  { id: 2 as PageId, label: 'Project Dashboard', icon: LayoutDashboard, path: '/' },
   { id: 3 as PageId, label: 'Workforce Overview', icon: Users, path: '/workforce' },
   { id: 4 as PageId, label: 'Gap Analysis', icon: BarChart3, path: '/gap-analysis' },
   { id: 5 as PageId, label: 'Upskilling Paths', icon: GraduationCap, path: '/upskilling' },

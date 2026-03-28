@@ -4,7 +4,6 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from "@/components/AppLayout";
-import UploadPage from "./pages/UploadPage";
 import DashboardPage from "./pages/DashboardPage";
 import WorkforcePage from "./pages/WorkforcePage";
 import GapAnalysisPage from "./pages/GapAnalysisPage";
@@ -27,7 +26,7 @@ const App = () => (
       <BrowserRouter>
         <AppLayout>
           <Routes>
-            <Route path="/" element={<UploadPage />} />
+            <Route path="/" element={<DashboardPage />} />
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/workforce" element={<WorkforcePage />} />
             <Route path="/gap-analysis" element={<GapAnalysisPage />} />
