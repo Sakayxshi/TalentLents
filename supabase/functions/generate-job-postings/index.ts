@@ -48,7 +48,7 @@ ${postings.map((p: any, i: number) => `${i + 1}. roleId="${p.roleId}" — ${p.ro
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: "openai/gpt-5.2",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
