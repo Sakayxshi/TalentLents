@@ -6,11 +6,14 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts';
-import { Sparkles, AlertTriangle, TrendingUp, Users, CheckCircle2, XCircle, ChevronDown, ChevronUp, Pencil, Brain, Search, Plus, Minus, UserPlus, Save } from 'lucide-react';
+import { Sparkles, AlertTriangle, TrendingUp, Users, CheckCircle2, XCircle, ChevronDown, ChevronUp, Pencil, Brain, Search, Plus, Minus, UserPlus, Save, Database, Upload } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { calculateCompositeScore } from '@/lib/scoring';
 import { invokeAI, GeneratedScenarios } from '@/lib/aiService';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { loadBmwDatabase, generateDemoEmployees } from '@/lib/demoData';
+import Papa from 'papaparse';
+import { Employee } from '@/store/useStore';
 
 const roleSkillsMap: Record<string, { skills: string[]; certs: string[] }> = {
   'Battery Engineer': { skills: ['battery chemistry', 'thermal management', 'bms design', 'cell testing'], certs: ['ISO 26262', 'EV Safety Level 2'] },
@@ -28,7 +31,7 @@ const roleSkillsMap: Record<string, { skills: string[]; certs: string[] }> = {
 };
 
 export default function DashboardPage() {
-  const { projectConfig, setProjectConfig, scenarios, setScenarios, selectScenario, selectedScenarioId, markPageComplete, employees, addToRoster, removeFromRoster, roster } = useStore();
+  const { projectConfig, setProjectConfig, scenarios, setScenarios, selectScenario, selectedScenarioId, markPageComplete, employees, setEmployees, addToRoster, removeFromRoster, roster } = useStore();
   const { toast } = useToast();
   const [form, setForm] = useState({
     name: projectConfig?.name || '',
@@ -40,6 +43,80 @@ export default function DashboardPage() {
     staffEstimate: projectConfig?.staffEstimate || '',
   });
   const [generating, setGenerating] = useState(false);
+  const [loadingBmw, setLoadingBmw] = useState(false);
+
+  const handleLoadBmw = async () => {
+    setLoadingBmw(true);
+    try {
+      const { employees: emps, stats } = await loadBmwDatabase();
+      setEmployees(emps, stats);
+      markPageComplete(1);
+      toast({ title: 'BMW Database Loaded', description: `${stats.total} employees ready` });
+    } catch {
+      toast({ title: 'Failed to load database', variant: 'destructive' });
+    } finally {
+      setLoadingBmw(false);
+    }
+  };
+
+  const handleLoadDemo = () => {
+    const demo = generateDemoEmployees(100);
+    const depts = new Set(demo.map(e => e.department)).size;
+    const locs = new Set(demo.map(e => e.location)).size;
+    setEmployees(demo, { total: demo.length, departments: depts, locations: locs, skipped: 0 });
+    markPageComplete(1);
+    toast({ title: 'Demo Data Loaded', description: '100 sample employees loaded' });
+  };
+
+  const handleUploadCsv = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.csv';
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (results) => {
+          const data = results.data as Record<string, string>[];
+          const valid = data.filter(r => r.employee_id && r.name);
+          const emps: Employee[] = valid.map(row => ({
+            employee_id: row.employee_id,
+            name: row.name,
+            department: row.department || '',
+            role: row.role || '',
+            location: row.location || '',
+            hire_date: row.hire_date || '',
+            years_at_company: Number(row.years_at_company) || 0,
+            manager_id: row.manager_id || '',
+            salary_band: row.salary_band || '',
+            employment_type: row.employment_type || '',
+            performance_rating: Number(row.performance_rating) || 3,
+            products_deployed: Number(row.products_deployed) || 0,
+            successful_products_deployed: Number(row.successful_products_deployed) || 0,
+            feedback_score: Number(row.feedback_score) || 3,
+            appraisal: row.appraisal || 'Meets Expectations',
+            certifications: row.certifications || '',
+            technical_skills: row.technical_skills || '',
+            education: row.education || '',
+            languages: row.languages || '',
+            flight_risk: row.flight_risk || 'Low',
+            internal_moves: Number(row.internal_moves) || 0,
+            current_project: row.current_project || '',
+            project_position: row.project_position || '',
+            peer_feedback_score: Number(row.peer_feedback_score) || 3,
+          }));
+          const depts = new Set(emps.map(e => e.department)).size;
+          const locs = new Set(emps.map(e => e.location)).size;
+          setEmployees(emps, { total: emps.length, departments: depts, locations: locs, skipped: data.length - valid.length });
+          markPageComplete(1);
+          toast({ title: 'CSV Uploaded', description: `${emps.length} employees loaded` });
+        },
+      });
+    };
+    input.click();
+  };
   const [expandedProsConsId, setExpandedProsConsId] = useState<string | null>(null);
   const [customSearch, setCustomSearch] = useState('');
   const [customRoleFilter, setCustomRoleFilter] = useState('All');
@@ -217,9 +294,43 @@ export default function DashboardPage() {
     <div>
       <PageHeader title="Project Dashboard" subtitle="Configure your initiative and generate staffing scenarios" />
 
-      {employees.length === 0 && (
-        <div className="card-surface p-8 mb-6 text-center">
-          <p className="text-muted-foreground">Please upload employee data first to enable scenario generation.</p>
+      {employees.length === 0 ? (
+        <div className="card-surface p-10 mb-6 text-center">
+          <Database size={40} className="mx-auto text-muted-foreground mb-4 opacity-40" />
+          <h3 className="text-foreground font-semibold mb-1">No Employee Data</h3>
+          <p className="text-sm text-muted-foreground mb-6">Load workforce data to enable AI scenario generation</p>
+          <div className="flex flex-col gap-3 items-center max-w-sm mx-auto">
+            <Button className="w-full" onClick={handleLoadBmw} disabled={loadingBmw}>
+              <Database size={15} className="mr-2" />
+              {loadingBmw ? 'Loading...' : 'Load BMW Database (800 Employees)'}
+            </Button>
+            <Button variant="outline" className="w-full" onClick={handleUploadCsv}>
+              <Upload size={15} className="mr-2" />
+              Upload Your CSV
+            </Button>
+            <Button variant="ghost" className="w-full text-muted-foreground" onClick={handleLoadDemo}>
+              Load Demo Data (100 Employees)
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between card-surface px-4 py-2.5 mb-4">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Database size={14} className="text-primary" />
+            <span><span className="text-foreground font-medium">{employees.length}</span> employees loaded</span>
+            <span className="text-border">·</span>
+            <span>{new Set(employees.map(e => e.department)).size} departments</span>
+            <span className="text-border">·</span>
+            <span>{new Set(employees.map(e => e.location)).size} locations</span>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" onClick={handleUploadCsv}>
+              <Upload size={12} className="mr-1" />Replace CSV
+            </Button>
+            <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" onClick={handleLoadBmw} disabled={loadingBmw}>
+              <Database size={12} className="mr-1" />{loadingBmw ? '...' : 'Reload BMW DB'}
+            </Button>
+          </div>
         </div>
       )}
 
