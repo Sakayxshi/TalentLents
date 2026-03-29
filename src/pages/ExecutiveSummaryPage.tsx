@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/MetricCard';
 import { Button } from '@/components/ui/button';
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts';
 import { Download, Sparkles } from 'lucide-react';
-import { calculateCompositeScore, getRecruitingWeeks, SALARY_BAND_WEEKLY, SALARY_BAND_MIDPOINTS, getOnboardingCost } from '@/lib/scoring';
+import { SALARY_BAND_WEEKLY, getOnboardingCost } from '@/lib/scoring';
 import { invokeAI, ExecutiveInsights } from '@/lib/aiService';
 import { useToast } from '@/hooks/use-toast';
 

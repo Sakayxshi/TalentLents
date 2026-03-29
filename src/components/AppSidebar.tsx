@@ -31,9 +31,10 @@ export function AppSidebar() {
 
   return (
     <aside
+      data-sidebar
       className={`flex flex-col border-r border-border bg-background transition-all duration-300 ${
         collapsed ? 'w-16' : 'w-64'
-      } min-h-screen shrink-0`}
+      } min-h-screen shrink-0 print:hidden`}
     >
       {/* Header */}
       <div className="p-4 border-b border-border">

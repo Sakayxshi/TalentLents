@@ -40,12 +40,23 @@ export default function GapAnalysisPage() {
   const scenario = scenarios.find(s => s.id === selectedScenarioId);
   const roles = scenario?.roles || [];
 
-  // Weeks until project deadline
   const weeksUntilDeadline = useMemo(() => {
     if (!projectConfig?.targetDeadline) return 52;
-    const deadline = new Date(projectConfig.targetDeadline);
+    const dl = projectConfig.targetDeadline;
+    // Handle "Q1 2026" format
+    const qMatch = dl.match(/Q(\d)\s+(\d{4})/);
+    if (qMatch) {
+      const quarter = parseInt(qMatch[1]);
+      const year = parseInt(qMatch[2]);
+      const month = (quarter - 1) * 3; // Q1=Jan, Q2=Apr, Q3=Jul, Q4=Oct
+      const deadline = new Date(year, month + 3, 0); // last day of quarter
+      const now = new Date();
+      return Math.max(4, Math.round((deadline.getTime() - now.getTime()) / (7 * 24 * 60 * 60 * 1000)));
+    }
+    const deadline = new Date(dl);
+    if (isNaN(deadline.getTime())) return 52;
     const now = new Date();
-    return Math.max(0, Math.round((deadline.getTime() - now.getTime()) / (7 * 24 * 60 * 60 * 1000)));
+    return Math.max(4, Math.round((deadline.getTime() - now.getTime()) / (7 * 24 * 60 * 60 * 1000)));
   }, [projectConfig]);
 
   const analysis = useMemo(() => {

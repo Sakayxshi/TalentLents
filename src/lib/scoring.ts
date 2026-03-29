@@ -58,11 +58,14 @@ export function calculateCompositeScore(
   const riskPenalty = employee.flight_risk?.toLowerCase() === 'high' ? -15
     : employee.flight_risk?.toLowerCase() === 'medium' ? -5 : 0;
 
-  // Adjust weights by priority
-  let weights = { skill: 0.25, perf: 0.15, delivery: 0.15, cert: 0.10, peer: 0.10, kpi: 0.10, avail: 0.10 };
-  if (priority === 'Critical') {
-    weights = { skill: 0.20, perf: 0.15, delivery: 0.15, cert: 0.08, peer: 0.08, kpi: 0.08, avail: 0.18 };
-  }
+  // Adjust weights by priority — 3 distinct weight tables per audit spec
+  const PRIORITY_WEIGHTS = {
+    Critical: { skill: 0.20, perf: 0.15, delivery: 0.15, cert: 0.08, peer: 0.08, kpi: 0.08, avail: 0.18 },
+    High:     { skill: 0.25, perf: 0.15, delivery: 0.15, cert: 0.10, peer: 0.10, kpi: 0.10, avail: 0.10 },
+    Medium:   { skill: 0.30, perf: 0.12, delivery: 0.12, cert: 0.15, peer: 0.10, kpi: 0.10, avail: 0.05 },
+    Low:      { skill: 0.30, perf: 0.12, delivery: 0.12, cert: 0.15, peer: 0.10, kpi: 0.10, avail: 0.05 },
+  };
+  const weights = PRIORITY_WEIGHTS[priority] || PRIORITY_WEIGHTS.High;
 
   const raw = (skillMatch * weights.skill) + (performance * weights.perf) + (deliveryScore * weights.delivery)
     + (certMatch * weights.cert) + (peerFeedback * weights.peer) + (kpi * weights.kpi) + (availability * weights.avail);

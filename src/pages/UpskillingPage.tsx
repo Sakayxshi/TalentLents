@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { PageHeader, MetricCard, Badge } from '@/components/ui/MetricCard';
 import { Button } from '@/components/ui/button';
-import { CheckCircle2, X, ArrowRight, Sparkles, RotateCcw } from 'lucide-react';
+import { CheckCircle2, X, ArrowRight, Sparkles, RotateCcw, GraduationCap } from 'lucide-react';
 import { getSkillOverlap, getMissingSkills, getMatchedSkills } from '@/lib/scoring';
 import { useToast } from '@/hooks/use-toast';
 import { invokeAI, GeneratedTrainingPaths } from '@/lib/aiService';
@@ -133,7 +133,13 @@ export default function UpskillingPage() {
         <MetricCard label="Savings vs External" value={uniqueCandidates.length > 0 ? `${Math.round((1 - totalBudget / (uniqueCandidates.length * 85000)) * 100)}%` : '—'} subtitle="Compared to external hires" />
       </div>
 
-      {viewMode === 'table' ? (
+      {uniqueCandidates.length === 0 ? (
+        <div className="card-surface p-12 text-center">
+          <GraduationCap size={36} className="mx-auto text-muted-foreground mb-3 opacity-40" />
+          <p className="text-foreground font-medium mb-1">No Upskill Candidates</p>
+          <p className="text-sm text-muted-foreground">Employees with 40–95% skill overlap will appear here. Add employees to roster from Gap Analysis first.</p>
+        </div>
+      ) : viewMode === 'table' ? (
         <div className="card-surface overflow-hidden">
           <table className="w-full text-sm">
             <thead>

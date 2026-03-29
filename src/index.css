@@ -139,3 +139,10 @@
 .animate-fade-in-up {
   animation: fadeInUp 0.5s ease forwards;
 }
+
+@media print {
+  [data-sidebar] { display: none !important; }
+  body { background: white !important; color: black !important; }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  .card-surface { border: 1px solid #ddd !important; background: white !important; }
+}
