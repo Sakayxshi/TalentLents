@@ -17,24 +17,24 @@ export function calculateCompositeScore(
   const reqSkillsLower = requiredSkills.map(s => s.toLowerCase());
   const reqCertsLower = requiredCerts.map(s => s.toLowerCase());
 
-  // 1. Skill Match (25pts)
+  // 1. Skill Match — fuzzy word-level
   const skillMatches = reqSkillsLower.length > 0
-    ? reqSkillsLower.filter(s => empSkills.some(es => es.includes(s) || s.includes(es))).length
+    ? reqSkillsLower.filter(s => empSkills.some(es => fuzzySkillMatch(es, s))).length
     : 0;
   const skillMatch = reqSkillsLower.length > 0 ? (skillMatches / reqSkillsLower.length) * 100 : 50;
 
-  // 2. Performance Rating (15pts) — normalize 1-5 to 0-100
+  // 2. Performance Rating — normalize 1-5 to 0-100
   const performance = (((employee.performance_rating || 3) - 1) / 4) * 100;
 
-  // 3. Products + Success Rate (15pts)
+  // 3. Products + Success Rate
   const successRate = employee.products_deployed > 0
     ? (employee.successful_products_deployed / employee.products_deployed) * 100
     : 50;
   const deliveryScore = (Math.min(employee.products_deployed / 20, 1) * 50) + (successRate * 0.5);
 
-  // 4. Certifications Match (10pts)
+  // 4. Certifications Match — fuzzy word-level
   const certMatches = reqCertsLower.length > 0
-    ? reqCertsLower.filter(c => empCerts.some(ec => ec.includes(c) || c.includes(ec))).length
+    ? reqCertsLower.filter(c => empCerts.some(ec => fuzzySkillMatch(ec, c))).length
     : 0;
   const certMatch = reqCertsLower.length > 0 ? (certMatches / reqCertsLower.length) * 100 : (empCerts.length > 0 ? 50 : 30);
 
@@ -123,22 +123,44 @@ export function getRiskVariant(risk: string): string {
   }
 }
 
+// Word-level fuzzy match: "battery cell electrochemistry" matches "battery chemistry"
+// by checking if significant words overlap (ignoring short/common words)
+const STOP_WORDS = new Set(['and', 'or', 'the', 'a', 'an', 'in', 'of', 'for', 'to', 'with', 'on', 'at', 'by', 'as']);
+
+function fuzzySkillMatch(skill1: string, skill2: string): boolean {
+  const a = skill1.toLowerCase();
+  const b = skill2.toLowerCase();
+  if (a.includes(b) || b.includes(a)) return true;
+
+  const wordsA = a.split(/[\s\-\/&,]+/).filter(w => w.length > 2 && !STOP_WORDS.has(w));
+  const wordsB = b.split(/[\s\-\/&,]+/).filter(w => w.length > 2 && !STOP_WORDS.has(w));
+  if (wordsA.length === 0 || wordsB.length === 0) return false;
+
+  const matchedWords = wordsA.filter(wa =>
+    wordsB.some(wb => wa.includes(wb) || wb.includes(wa))
+  );
+  const overlapRatio = matchedWords.length / Math.min(wordsA.length, wordsB.length);
+  return overlapRatio >= 0.5;
+}
+
 export function getSkillOverlap(empSkills: string[], requiredSkills: string[]): number {
   if (requiredSkills.length === 0) return 0;
-  const empLower = empSkills.map(s => s.toLowerCase());
-  const reqLower = requiredSkills.map(s => s.toLowerCase());
-  const matches = reqLower.filter(s => empLower.some(es => es.includes(s) || s.includes(es))).length;
-  return matches / reqLower.length;
+  const matches = requiredSkills.filter(req =>
+    empSkills.some(emp => fuzzySkillMatch(emp, req))
+  ).length;
+  return matches / requiredSkills.length;
 }
 
 export function getMissingSkills(empSkills: string[], requiredSkills: string[]): string[] {
-  const empLower = empSkills.map(s => s.toLowerCase());
-  return requiredSkills.filter(s => !empLower.some(es => es.includes(s.toLowerCase()) || s.toLowerCase().includes(es)));
+  return requiredSkills.filter(req =>
+    !empSkills.some(emp => fuzzySkillMatch(emp, req))
+  );
 }
 
 export function getMatchedSkills(empSkills: string[], requiredSkills: string[]): string[] {
-  const empLower = empSkills.map(s => s.toLowerCase());
-  return requiredSkills.filter(s => empLower.some(es => es.includes(s.toLowerCase()) || s.toLowerCase().includes(es)));
+  return requiredSkills.filter(req =>
+    empSkills.some(emp => fuzzySkillMatch(emp, req))
+  );
 }
 
 // ─── External Candidate Scoring ──────────────────────────────────────────────
@@ -181,9 +203,9 @@ export function scoreExternalCandidate(
   const skills = candidateSkills.split(/[,;]/).map(s => s.trim().toLowerCase()).filter(Boolean);
   const certs = candidateCertifications.split(/[,;]/).map(s => s.trim().toLowerCase()).filter(Boolean);
 
-  // Skill Match
+  // Skill Match — fuzzy word-level
   const matchedSkills = requiredSkills.filter(req =>
-    skills.some(s => s.includes(req.toLowerCase()) || req.toLowerCase().includes(s))
+    skills.some(s => fuzzySkillMatch(s, req.toLowerCase()))
   );
   const skillMatch = requiredSkills.length > 0
     ? (matchedSkills.length / requiredSkills.length) * 100
@@ -197,9 +219,9 @@ export function scoreExternalCandidate(
   const baseExp = Math.min(100, (candidateYearsExp / 12) * 100);
   const experienceRelevance = Math.min(100, isAutomotive ? baseExp * 1.3 : baseExp);
 
-  // Certification Match
+  // Certification Match — fuzzy
   const matchedCerts = requiredCerts.filter(req =>
-    certs.some(c => c.includes(req.toLowerCase()) || req.toLowerCase().includes(c))
+    certs.some(c => fuzzySkillMatch(c, req.toLowerCase()))
   );
   const certificationMatch = requiredCerts.length > 0
     ? (matchedCerts.length / requiredCerts.length) * 100

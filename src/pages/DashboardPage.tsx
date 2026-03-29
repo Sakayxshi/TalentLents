@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts';
 import { Sparkles, AlertTriangle, TrendingUp, Users, CheckCircle2, XCircle, ChevronDown, ChevronUp, Pencil, Brain, Search, Plus, Minus, UserPlus, Save, Database, Upload } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { calculateCompositeScore } from '@/lib/scoring';
+import { calculateCompositeScore, getSkillOverlap as getSkillOverlapFn } from '@/lib/scoring';
 import { invokeAI, GeneratedScenarios } from '@/lib/aiService';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { loadBmwDatabase, generateDemoEmployees, loadProjectHistory } from '@/lib/demoData';
@@ -307,10 +307,9 @@ export default function DashboardPage() {
   const computeInternalAvailable = useCallback((role: string, requiredSkills: string[]): number => {
     if (employees.length === 0) return 0;
     return employees.filter(emp => {
-      const empSkills = (emp.technical_skills || '').toLowerCase();
-      const roleMatch = emp.role?.toLowerCase().includes(role.split(' ')[0].toLowerCase());
-      const skillMatch = requiredSkills.some(skill => empSkills.includes(skill.toLowerCase()));
-      return roleMatch || skillMatch;
+      const empSkills = (emp.technical_skills || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
+      const overlap = getSkillOverlapFn(empSkills, requiredSkills);
+      return overlap >= 0.40;
     }).length;
   }, [employees]);
 
