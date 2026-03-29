@@ -2,11 +2,11 @@ import { useMemo, useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { PageHeader, MetricCard, Badge } from '@/components/ui/MetricCard';
 import { calculateCompositeScore, getSkillOverlap, getMissingSkills, getMatchedSkills, GAP_THRESHOLDS } from '@/lib/scoring';
-import { ChevronDown, ChevronUp, Plus, Sparkles, Brain, Target, AlertTriangle } from 'lucide-react';
+import { ChevronDown, ChevronUp, Plus, Sparkles, Brain, Target, AlertTriangle, CheckCircle2, GraduationCap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { invokeAI, GapStrategy } from '@/lib/aiService';
-import { buildTrainingPath } from '@/lib/bmw-training-catalogue';
+import { buildTrainingPath, getSkillsAfterTraining } from '@/lib/bmw-training-catalogue';
 
 const HIRING_COST = 85_000; // EUR — cost of one external hire
 const TRAINING_COST_THRESHOLD = 0.70; // training must be < 70% of hiring cost
@@ -31,7 +31,7 @@ interface UpskillCandidate {
 }
 
 export default function GapAnalysisPage() {
-  const { employees, scenarios, selectedScenarioId, roster, addToRoster, addUpskillCandidate, markPageComplete, projectConfig } = useStore();
+  const { employees, scenarios, selectedScenarioId, roster, addToRoster, addUpskillCandidate, upskillCandidates, completedTrainings, completeTraining, markPageComplete, projectConfig } = useStore();
   const { toast } = useToast();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [aiStrategy, setAiStrategy] = useState<GapStrategy | null>(null);
@@ -209,7 +209,7 @@ export default function GapAnalysisPage() {
 
   return (
     <div>
-      <PageHeader title="Gap Analysis" subtitle="Identify staffing gaps and find solutions">
+      <PageHeader title="Gap Analysis & Training" subtitle="Identify gaps, upskill internal, hire external">
         <Button size="sm" onClick={handleAiStrategy} disabled={loadingAi}>
           <Sparkles size={14} className="mr-2" />{loadingAi ? 'Analyzing...' : aiStrategy ? 'Refresh AI Strategy' : 'AI Gap Strategy'}
         </Button>
@@ -332,30 +332,79 @@ export default function GapAnalysisPage() {
                 {r.trainable.length > 0 && (
                   <div>
                     <h5 className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
-                      🎓 Training @ BMW <span className="text-warning">(60–79% · all 4 conditions met)</span>
+                      <GraduationCap size={12} className="inline mr-1" />Training @ BMW <span className="text-warning">(60–79% · all 4 conditions met)</span>
                     </h5>
-                    <div className="space-y-2">
-                      {r.trainable.map(e => (
-                        <div key={e.employee_id} className="flex items-center justify-between text-sm px-2 py-2 rounded bg-warning/5 border border-warning/20">
-                          <div className="flex-1">
-                            <span className="text-foreground font-medium">{e.name}</span>
-                            <span className="text-muted-foreground ml-2 text-xs">({e.role})</span>
-                            <div className="flex flex-wrap gap-1 mt-1">
+                    <div className="space-y-3">
+                      {r.trainable.map(e => {
+                        const isApproved = upskillCandidates.some(u => u.employeeId === e.employee_id && u.approved);
+                        const isCompleted = completedTrainings.includes(e.employee_id);
+                        const path = buildTrainingPath(e.missingSkills);
+                        return (
+                          <div key={e.employee_id} className={`text-sm px-3 py-3 rounded border ${isCompleted ? 'bg-success/5 border-success/20 opacity-70' : 'bg-warning/5 border-warning/20'}`}>
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <span className="text-foreground font-medium">{e.name}</span>
+                                <span className="text-muted-foreground ml-2 text-xs">— {e.role}</span>
+                              </div>
+                              <div className="flex items-center gap-2 text-xs">
+                                <span className="text-warning font-medium">{e.overlapPct}% match</span>
+                                <span className="text-muted-foreground">· {e.missingSkills.length} skills missing · {e.trainingWeeks}w · €{e.trainingCost.toLocaleString()}</span>
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap gap-1 mt-1.5">
                               {e.matchedSkills.map(s => <span key={s} className="px-1.5 py-0 text-[10px] rounded badge-green">{s}</span>)}
                               {e.missingSkills.map(s => <span key={s} className="px-1.5 py-0 text-[10px] rounded badge-amber">{s}</span>)}
                             </div>
-                            <div className="flex gap-3 mt-1 text-[10px] text-muted-foreground">
-                              <span>Training: {e.trainingWeeks}w</span>
-                              <span>Cost: €{e.trainingCost.toLocaleString()}</span>
-                              <span className="text-success">vs €{HIRING_COST.toLocaleString()} hire</span>
+                            {/* Inline training path */}
+                            {path.courses.length > 0 && (
+                              <div className="mt-2 pl-2 border-l-2 border-warning/30 space-y-1">
+                                {path.courses.map((c, i) => (
+                                  <div key={c.id} className="flex items-center gap-2 text-[11px]">
+                                    <span className="w-4 h-4 rounded-full bg-warning/20 text-warning flex items-center justify-center text-[9px] font-bold shrink-0">{i + 1}</span>
+                                    <span className="text-foreground">{c.name}</span>
+                                    <span className="text-muted-foreground ml-auto">{c.duration_weeks}w · €{c.cost_eur.toLocaleString()} · {c.delivery}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {/* Action buttons */}
+                            <div className="flex gap-2 mt-2">
+                              {isCompleted ? (
+                                <span className="flex items-center gap-1 text-xs text-success font-medium"><CheckCircle2 size={12} />Training Complete</span>
+                              ) : isApproved ? (
+                                <>
+                                  <Badge variant="badge-blue">Approved</Badge>
+                                  <Button size="sm" variant="outline" className="h-6 text-xs text-success border-success/40" onClick={() => {
+                                    const emp = employees.find(e2 => e2.employee_id === e.employee_id);
+                                    if (!emp) return;
+                                    const newSkills = getSkillsAfterTraining(emp.technical_skills, path.courses);
+                                    completeTraining(e.employee_id, newSkills);
+                                    toast({ title: 'Training Complete', description: `${e.name}'s skills updated — gap recalculated` });
+                                  }}>
+                                    <CheckCircle2 size={11} className="mr-1" />Mark Complete
+                                  </Button>
+                                </>
+                              ) : (
+                                <Button size="sm" variant="outline" className="h-6 text-xs" onClick={() => {
+                                  addToRoster(e.employee_id);
+                                  addUpskillCandidate({
+                                    employeeId: e.employee_id,
+                                    targetRole: r.role,
+                                    approved: true,
+                                    trainingPath: path.courses.map(c => ({ course: c.name, duration: `${c.duration_weeks}w`, cost: c.cost_eur, method: c.delivery, coversSkills: c.skillsGranted })),
+                                    totalCost: path.totalCost,
+                                    totalWeeks: path.totalWeeks,
+                                  });
+                                  markPageComplete(4);
+                                  toast({ title: 'Approved for Training', description: `${e.name} — ${path.courses.length} courses, ${path.totalWeeks}w` });
+                                }}>
+                                  <Plus size={11} className="mr-1" />Approve Upskilling
+                                </Button>
+                              )}
                             </div>
                           </div>
-                          <div className="flex items-center gap-3">
-                            <span className="text-xs text-warning font-medium">{e.overlapPct}%</span>
-                            <button onClick={() => { addToRoster(e.employee_id); addUpskillCandidate({ employeeId: e.employee_id, targetRole: r.role, approved: false }); markPageComplete(4); toast({ title: 'Added to Training Queue', description: `${e.name} → Upskilling page` }); }} className="text-primary hover:bg-primary/10 p-1 rounded"><Plus size={14} /></button>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -395,6 +444,33 @@ export default function GapAnalysisPage() {
           </div>
         ))}
       </div>
+
+      {/* Upskilling Summary */}
+      {analysis.some(r => r.trainable.length > 0) && (
+        <div className="card-surface p-5 mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <GraduationCap size={18} className="text-warning" />
+            <h3 className="font-semibold text-foreground">Upskilling Summary</h3>
+          </div>
+          {(() => {
+            const allTrainable = analysis.flatMap(r => r.trainable);
+            const approved = allTrainable.filter(e => upskillCandidates.some(u => u.employeeId === e.employee_id && u.approved));
+            const completed = allTrainable.filter(e => completedTrainings.includes(e.employee_id));
+            const totalCost = allTrainable.reduce((s, e) => s + e.trainingCost, 0);
+            const avgWeeks = allTrainable.length > 0 ? Math.round(allTrainable.reduce((s, e) => s + e.trainingWeeks, 0) / allTrainable.length) : 0;
+            const savingsVsExternal = allTrainable.length * HIRING_COST - totalCost;
+            return (
+              <div className="grid grid-cols-5 gap-3 text-center text-sm">
+                <div className="p-2 rounded bg-secondary"><p className="text-foreground font-bold text-lg">{allTrainable.length}</p><p className="text-xs text-muted-foreground">Candidates</p></div>
+                <div className="p-2 rounded bg-secondary"><p className="text-foreground font-bold text-lg">{approved.length}</p><p className="text-xs text-muted-foreground">Approved</p></div>
+                <div className="p-2 rounded bg-secondary"><p className="text-foreground font-bold text-lg">{completed.length}</p><p className="text-xs text-success">Completed</p></div>
+                <div className="p-2 rounded bg-secondary"><p className="text-foreground font-bold text-lg">{avgWeeks}w</p><p className="text-xs text-muted-foreground">Avg Time</p></div>
+                <div className="p-2 rounded bg-secondary"><p className="text-success font-bold text-lg">€{(savingsVsExternal / 1000).toFixed(0)}k</p><p className="text-xs text-muted-foreground">Saved vs Hire</p></div>
+              </div>
+            );
+          })()}
+        </div>
+      )}
 
       {allMissingCerts.length > 0 && (
         <div className="card-surface p-5">

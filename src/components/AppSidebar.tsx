@@ -1,20 +1,17 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useStore, PageId } from '@/store/useStore';
 import {
-  LayoutDashboard, Users, BarChart3, GraduationCap,
-  FileText, Trophy, DollarSign, FileOutput,
-  ChevronLeft, ChevronRight, CheckCircle2
+  LayoutDashboard, Users, BarChart3, Briefcase,
+  DollarSign, FileOutput, ChevronLeft, ChevronRight, CheckCircle2
 } from 'lucide-react';
 import { useState } from 'react';
 
 const pages = [
   { id: 2 as PageId, label: 'Project Dashboard', icon: LayoutDashboard, path: '/' },
-  { id: 3 as PageId, label: 'Workforce Overview', icon: Users, path: '/workforce' },
-  { id: 4 as PageId, label: 'Gap Analysis', icon: BarChart3, path: '/gap-analysis' },
-  { id: 5 as PageId, label: 'Upskilling Paths', icon: GraduationCap, path: '/upskilling' },
-  { id: 6 as PageId, label: 'Job Postings', icon: FileText, path: '/job-postings' },
-  { id: 7 as PageId, label: 'Candidate Ranking', icon: Trophy, path: '/candidates' },
-  { id: 8 as PageId, label: 'Costs', icon: DollarSign, path: '/costs' },
+  { id: 3 as PageId, label: 'Workforce & Ranking', icon: Users, path: '/workforce' },
+  { id: 4 as PageId, label: 'Gap Analysis & Training', icon: BarChart3, path: '/gaps' },
+  { id: 6 as PageId, label: 'Hiring & Candidates', icon: Briefcase, path: '/hiring' },
+  { id: 8 as PageId, label: 'Costs & Team', icon: DollarSign, path: '/costs' },
   { id: 11 as PageId, label: 'Executive Summary', icon: FileOutput, path: '/summary' },
 ];
 

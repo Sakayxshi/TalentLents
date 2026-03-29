@@ -7,9 +7,7 @@ import { AppLayout } from "@/components/AppLayout";
 import DashboardPage from "./pages/DashboardPage";
 import WorkforcePage from "./pages/WorkforcePage";
 import GapAnalysisPage from "./pages/GapAnalysisPage";
-import UpskillingPage from "./pages/UpskillingPage";
-import JobPostingsPage from "./pages/JobPostingsPage";
-import CandidateRankingPage from "./pages/CandidateRankingPage";
+import HiringPage from "./pages/HiringPage";
 import CostsPage from "./pages/CostsPage";
 import ExecutiveSummaryPage from "./pages/ExecutiveSummaryPage";
 import NotFound from "./pages/NotFound.tsx";
@@ -25,12 +23,10 @@ const App = () => (
         <AppLayout>
           <Routes>
             <Route path="/" element={<DashboardPage />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/project" element={<DashboardPage />} />
             <Route path="/workforce" element={<WorkforcePage />} />
-            <Route path="/gap-analysis" element={<GapAnalysisPage />} />
-            <Route path="/upskilling" element={<UpskillingPage />} />
-            <Route path="/job-postings" element={<JobPostingsPage />} />
-            <Route path="/candidates" element={<CandidateRankingPage />} />
+            <Route path="/gaps" element={<GapAnalysisPage />} />
+            <Route path="/hiring" element={<HiringPage />} />
             <Route path="/costs" element={<CostsPage />} />
             <Route path="/summary" element={<ExecutiveSummaryPage />} />
             <Route path="*" element={<NotFound />} />
